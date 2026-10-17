@@ -99,25 +99,70 @@
   #lightbox { position: fixed; inset: 0; background: #fff; z-index: 50; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 24px; }
   #lightbox span { color: #bbb; font-size: 13px; }
 
-  /* Live camera: the negative is shown as a positive while aiming */
-  #live { position: fixed; inset: 0; z-index: 40; background: #000; display: flex; flex-direction: column; }
-  #live video { display: none; }
-  .live-view { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
-  #liveCanvas { max-width: 100%; max-height: 100%; }
-  .live-bar {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 14px max(16px, env(safe-area-inset-right, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
-    background: rgba(0,0,0,.6);
+  /* Full-screen camera + result screens (FilmBox-style) */
+  .screen {
+    position: fixed; inset: 0; z-index: 40; background: #000; color: #fff;
+    display: flex; flex-direction: column;
+    padding-top: env(safe-area-inset-top, 0px);
   }
-  .live-bar .seg { flex: 0 1 260px; }
-  .live-msg { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); inset-inline: 16px; text-align: center; color: var(--accent); font-size: 14px; text-shadow: 0 1px 3px #000; }
+  .screen-top {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px max(14px, env(safe-area-inset-right, 0px)) 10px max(14px, env(safe-area-inset-left, 0px));
+  }
+  .screen .icon { width: 42px; height: 42px; min-height: 42px; padding: 0; border-radius: 50%; background: rgba(255,255,255,.12); border: 0; color: #fff; font-size: 18px; }
+  .screen .ghost { background: transparent; border: 1px solid rgba(255,255,255,.25); color: #fff; font-size: 13px; min-height: 36px; padding: 6px 12px; }
+  .screen .seg { border-color: rgba(255,255,255,.25); flex: 0 1 220px; }
+  .screen .seg button { color: #fff; }
+  .screen .seg button.on { background: #fff; color: #000; }
+
+  #live video { display: none; }
+  .live-view { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  #liveCanvas { max-width: 100%; max-height: 100%; }
+  .live-msg {
+    position: absolute; bottom: 12px; inset-inline: 16px; text-align: center;
+    font-size: 14px; text-shadow: 0 1px 3px #000; pointer-events: none;
+  }
+  .live-bar {
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;
+    padding: 16px max(20px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+  }
+  .slot { display: flex; align-items: center; gap: 10px; }
+  .slot.end { justify-content: flex-end; }
+  .counter { display: flex; flex-direction: column; align-items: center; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .counter b { font-size: 22px; }
+  .counter span { font-size: 11px; color: rgba(255,255,255,.6); }
+  #lastThumb { width: 54px; height: 54px; min-height: 54px; padding: 0; border-radius: 8px; overflow: hidden; border: 2px solid #fff; background: #222; }
+  #lastThumb canvas { width: 100%; height: 100%; object-fit: cover; display: block; }
   #shutter {
-    width: 72px; height: 72px; min-height: 72px; border-radius: 50%; padding: 0; flex: none;
-    background: #fff; border: 5px solid var(--accent);
+    width: 78px; height: 78px; min-height: 78px; border-radius: 50%; padding: 0;
+    background: #e0383e; border: 5px solid #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.5);
     touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   }
   #shutter:active { transform: scale(.94); }
-  #shutter.scanning { background: conic-gradient(var(--accent) calc(var(--p, 0) * 1turn), #fff 0); touch-action: none; }
+  #shutter.scanning { background: conic-gradient(#fff calc(var(--p, 0) * 1turn), #e0383e 0); }
+
+  .res-view { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 6px 12px; }
+  #resCanvas { max-width: 100%; max-height: 100%; opacity: 0; transform: scale(.94); transition: opacity .45s ease, transform .45s ease; }
+  #resCanvas.shown { opacity: 1; transform: none; }
+  .developing { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; font-size: 15px; }
+  .developing::before {
+    content: ""; width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,.2); border-top-color: #e0383e; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(1turn); } }
+  .res-hint { color: var(--accent); font-size: 13px; text-align: center; min-height: 18px; padding: 0 16px; }
+  .res-tools { display: flex; justify-content: center; gap: 6px; padding: 8px 12px 4px; }
+  .res-tools button { flex-direction: column; gap: 2px; background: transparent; border: 0; color: #fff; font-size: 20px; min-width: 64px; min-height: 52px; padding: 4px; }
+  .res-tools button span { font-size: 11px; color: rgba(255,255,255,.75); }
+  .res-tools button.active span, .res-tools button.active { color: var(--accent); }
+  .filters { display: flex; gap: 10px; overflow-x: auto; padding: 8px max(14px, env(safe-area-inset-right, 0px)) 8px max(14px, env(safe-area-inset-left, 0px)); scrollbar-width: none; }
+  .filters button { flex: none; flex-direction: column; gap: 4px; background: transparent; border: 0; padding: 0; color: rgba(255,255,255,.8); font-size: 12px; min-height: 0; }
+  .filters canvas { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; border: 2px solid transparent; display: block; }
+  .filters button.on { color: #fff; font-weight: 600; }
+  .filters button.on canvas { border-color: #fff; }
+  .res-bar { padding: 8px max(16px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+  .res-bar .save { width: 100%; min-height: 50px; font-size: 16px; background: #e0383e; border-color: #e0383e; color: #fff; border-radius: 12px; }
+  @media (prefers-reduced-motion: reduce) { #resCanvas { transition: none; } .developing::before { animation: none; } }
 
   @media (max-width: 860px) {
     .start, .editor { grid-template-columns: 1fr; }
@@ -226,7 +271,8 @@
           </select>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-          <button class="primary big" id="downloadBtn">⬇️ הורד למחשב / לטלפון</button>
+          <button class="primary big" id="toResult">✓ סיום – חזרה לתמונה</button>
+          <button class="big" id="downloadBtn">⬇️ הורד למחשב / לטלפון</button>
           <button class="big" id="shareBtn" hidden>📲 שמור לגלריה / שתף</button>
           <button class="big" id="newBtn">＋ תמונה חדשה</button>
         </div>
@@ -236,18 +282,48 @@
   </section>
 </main>
 
-<section id="live" hidden>
+<section id="live" class="screen" dir="rtl" hidden>
   <video id="video" playsinline muted></video>
-  <div class="live-view"><canvas id="liveCanvas"></canvas></div>
-  <div class="live-msg" id="liveMsg">כוונו לנגטיב – הפריים יזוהה אוטומטית</div>
-  <div class="live-bar">
-    <button id="liveClose">✕ סגור</button>
-    <button id="shutter" aria-label="צלם"></button>
+  <div class="screen-top">
+    <button class="icon" id="liveClose" aria-label="סגור את המצלמה">✕</button>
     <div class="seg" id="liveType">
       <button data-type="color" class="on">צבע</button>
       <button data-type="bw">ש/ל</button>
       <button data-type="slide">שקופית</button>
     </div>
+  </div>
+  <div class="live-view">
+    <canvas id="liveCanvas"></canvas>
+    <div class="live-msg" id="liveMsg">כוונו לנגטיב מול אור לבן</div>
+  </div>
+  <div class="live-bar">
+    <div class="slot"><div class="counter"><b id="count">0</b><span>נשמרו</span></div></div>
+    <button id="shutter" aria-label="החזיקו לסריקה"></button>
+    <div class="slot end">
+      <button id="lastThumb" aria-label="התמונה האחרונה שנשמרה" hidden><canvas id="thumbCanvas" width="108" height="108"></canvas></button>
+    </div>
+  </div>
+</section>
+
+<section id="result" class="screen" dir="rtl" hidden>
+  <div class="screen-top">
+    <button class="icon" id="resClose" aria-label="מחק וחזור לצילום">✕</button>
+    <button class="ghost" id="resAdvanced">עריכה מתקדמת</button>
+  </div>
+  <div class="res-view">
+    <canvas id="resCanvas"></canvas>
+    <div class="developing" id="developing" hidden>מפתח את התמונה…</div>
+  </div>
+  <div class="res-hint" id="resHint"></div>
+  <div class="res-tools">
+    <button id="resRotate">⟳<span>סובב</span></button>
+    <button id="resFlip">⇋<span>מראה</span></button>
+    <button id="resCrop">✂️<span>חיתוך</span></button>
+    <button id="resEnhance">✨<span>שיפור</span></button>
+  </div>
+  <div class="filters" id="filters"></div>
+  <div class="res-bar">
+    <button class="save" id="resSave">✓ שמור לגלריה</button>
   </div>
 </section>
 
@@ -338,7 +414,7 @@
     state.crop = { x: 0, y: 0, w: 1, h: 1 };
     state.base = null; state.balance = [1, 1, 1];
     resetSliders();
-    $('start').hidden = true; $('editor').hidden = false;
+    $('start').hidden = true;
     setMode(null);
     let box = knownCrop;
     if (!box) {
@@ -348,13 +424,194 @@
     if (box) {
       state.crop = box;
       refresh();
-      $('hint').textContent = frameWarning() || 'הפריים זוהה וחותך אוטומטית · אפשר לתקן ב"חיתוך"';
+      showResult(true);
     } else {
-      // No light box around the film was found: let the user frame it by hand.
+      // The picture couldn't be told apart from its surroundings: let the user frame it by hand.
+      $('editor').hidden = false;
       setMode('crop');
       refresh();
     }
   }
+
+  /* ---------- Result screen (FilmBox-style: developed picture, looks, save) ---------- */
+  const LOOKS = [
+    { id: 'original', label: 'מקורי', adj: {} },
+    { id: 'cool', label: 'קר', adj: { temp: -0.35 } },
+    { id: 'warm', label: 'חם', adj: { temp: 0.35 } },
+    { id: 'contrast', label: 'ניגודיות', adj: { contrast: 0.35, sat: 0.15 } },
+    { id: 'bw', label: 'שחור-לבן', adj: { sat: -1 } },
+  ];
+  const ENHANCE = { contrast: 0.12, sat: 0.15, exposure: 0.08 };
+  state.look = 'original';
+  state.enhance = false;
+
+  function lookAdj(id, enhance) {
+    const a = {};
+    for (const s of SLIDERS) a[s.key] = s.def;
+    Object.assign(a, (LOOKS.find(l => l.id === id) || LOOKS[0]).adj);
+    if (enhance) for (const k in ENHANCE) a[k] += ENHANCE[k];
+    return a;
+  }
+  function applyLook() {
+    const a = lookAdj(state.look, state.enhance);
+    for (const s of SLIDERS) { state.adj[s.key] = a[s.key]; $('s-' + s.key).value = a[s.key]; showSlider(s); }
+    paint();
+    drawResult();
+  }
+  function drawResult() {
+    const rc = $('resCanvas');
+    rc.width = view.width; rc.height = view.height;
+    rc.getContext('2d').drawImage(view, 0, 0);
+    invalidateSave();
+  }
+
+  // One small preview per look, rendered from the same picture.
+  function buildFilterThumbs() {
+    const box = $('filters');
+    box.textContent = '';
+    if (!raw) return;
+    const t = document.createElement('canvas');
+    t.width = raw.width; t.height = raw.height;
+    t.getContext('2d').putImageData(raw, 0, 0);
+    const side = 144, s = side / Math.min(raw.width, raw.height);
+    const small = document.createElement('canvas');
+    small.width = side; small.height = side;
+    const sctx = small.getContext('2d');
+    sctx.drawImage(t, (side - raw.width * s) / 2, (side - raw.height * s) / 2, raw.width * s, raw.height * s);
+    const src = sctx.getImageData(0, 0, side, side);
+    const saved = { ...state.adj };
+    for (const look of LOOKS) {
+      state.adj = lookAdj(look.id, state.enhance);
+      const out = sctx.createImageData(side, side);
+      process(src, out, buildLuts());
+      const b = document.createElement('button');
+      b.className = look.id === state.look ? 'on' : '';
+      const c = document.createElement('canvas');
+      c.width = c.height = side;
+      c.getContext('2d').putImageData(out, 0, 0);
+      const label = document.createElement('span');
+      label.textContent = look.label;
+      b.append(c, label);
+      b.addEventListener('click', () => {
+        state.look = look.id;
+        for (const x of box.children) x.classList.toggle('on', x === b);
+        applyLook();
+      });
+      box.appendChild(b);
+    }
+    state.adj = saved;
+  }
+
+  function showResult(fresh) {
+    $('editor').hidden = true; $('start').hidden = true; $('live').hidden = true;
+    $('result').hidden = false;
+    $('resEnhance').classList.toggle('active', state.enhance);
+    $('resHint').textContent = frameWarning();
+    const rc = $('resCanvas');
+    if (fresh) {
+      state.look = 'original'; state.enhance = false;
+      $('resEnhance').classList.remove('active');
+      applyLook();
+      buildFilterThumbs();
+      // Short "developing" beat, then the picture fades in.
+      rc.classList.remove('shown');
+      $('developing').hidden = false;
+      setTimeout(() => { $('developing').hidden = true; rc.classList.add('shown'); }, 700);
+    } else {
+      drawResult();
+      buildFilterThumbs();
+      rc.classList.add('shown');
+    }
+  }
+
+  // Full-size render runs in the background after each change, so "save" can open the share sheet
+  // straight from the tap (phones only allow that right after a touch).
+  let saveVersion = 0, readyBlob = null, readyVersion = -1, saveTimer = 0;
+  function invalidateSave() {
+    saveVersion++;
+    readyBlob = null;
+    clearTimeout(saveTimer);
+    if ($('result').hidden) return;
+    const v = saveVersion;
+    saveTimer = setTimeout(() => {
+      renderFull().then(b => { if (v === saveVersion) { readyBlob = b; readyVersion = v; } }).catch(() => {});
+    }, 900);
+  }
+
+  function backToCapture() {
+    $('result').hidden = true;
+    if (usedLiveCamera && cameraAllowed) openLive();
+    else { $('start').hidden = false; }
+  }
+
+  let savedCount = 0;
+  function markSaved() {
+    savedCount++;
+    $('count').textContent = savedCount;
+    const tc = $('thumbCanvas'), rc = $('resCanvas'), tctx = tc.getContext('2d');
+    const s = Math.max(tc.width / rc.width, tc.height / rc.height);
+    tctx.clearRect(0, 0, tc.width, tc.height);
+    tctx.drawImage(rc, (tc.width - rc.width * s) / 2, (tc.height - rc.height * s) / 2, rc.width * s, rc.height * s);
+    $('lastThumb').hidden = false;
+  }
+
+  async function saveFromResult() {
+    const btn = $('resSave');
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = 'שומר…';
+    try {
+      const blob = readyBlob && readyVersion === saveVersion ? readyBlob : await renderFull();
+      const name = fileName();
+      if (hostDownloads) {
+        await hostDownloads.save({ filename: name, data: blob });
+      } else if (preferShare) {
+        try {
+          await navigator.share({ files: [new File([blob], name, { type: blob.type })] });
+        } catch (err) {
+          if (err && err.name === 'AbortError') return;   // closed the share sheet: stay here
+          downloadBlob(blob, name);
+        }
+      } else {
+        downloadBlob(blob, name);
+      }
+      markSaved();
+      backToCapture();
+    } catch (err) {
+      $('resHint').textContent = err && err.code === 'declined' ? 'השמירה בוטלה' : 'השמירה נכשלה – נסו שוב';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  }
+
+  $('resSave').addEventListener('click', saveFromResult);
+  $('resClose').addEventListener('click', backToCapture);
+  $('lastThumb').addEventListener('click', () => { if (raw) showResult(false); });
+  $('resAdvanced').addEventListener('click', () => {
+    $('result').hidden = true; $('editor').hidden = false;
+    $('hint').textContent = frameWarning();
+    refresh();
+  });
+  $('resRotate').addEventListener('click', () => {
+    reorient(() => { state.rot = (state.rot + 90) % 360; });
+    showResult(false);
+  });
+  $('resFlip').addEventListener('click', () => {
+    reorient(() => { state.flip = !state.flip; });
+    showResult(false);
+  });
+  $('resCrop').addEventListener('click', () => {
+    $('result').hidden = true; $('editor').hidden = false;
+    setMode('crop');
+    refresh();
+  });
+  $('resEnhance').addEventListener('click', () => {
+    state.enhance = !state.enhance;
+    $('resEnhance').classList.toggle('active', state.enhance);
+    applyLook();
+    buildFilterThumbs();
+  });
   $('camInput').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
   $('fileInput').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
   const drop = $('drop');
@@ -529,12 +786,19 @@
     const gains = [1 + a.temp * 0.18, 1 - a.tint * 0.18, 1 - a.temp * 0.18];
     const k = 1 + a.contrast;
     const bal = state.type === 'bw' ? [1, 1, 1] : state.balance;
+    // Auto exposure: bend the curve so the picture's median tone lands on a natural mid-tone,
+    // instead of letting a few bright spots push everything else dark.
+    const ref = state.type === 'bw' ? 3 : 1;
+    const nMed = clamp01(makeBaseCurve(1, hs)(percentile(hs[ref], 0.5)));
+    const autoG = nMed > 0.01 && nMed < 0.99
+      ? Math.min(1.8, Math.max(0.55, Math.log(0.42) / Math.log(nMed)))
+      : 1;
     const luts = [];
     for (let c = 0; c < 3; c++) {
       const base = makeBaseCurve(c, hs);
       const lut = new Float32Array(size);
       for (let v = 0; v < size; v++) {
-        let n = Math.pow(clamp01(base(v * 255 / (size - 1))), bal[c]);
+        let n = Math.pow(Math.pow(clamp01(base(v * 255 / (size - 1))), bal[c]), autoG);
         n = n * expo * gains[c];
         n = (n - 0.5) * k + 0.5;
         n = Math.pow(clamp01(n), 1 / a.gamma);
@@ -645,9 +909,10 @@
     // Color picks were measured on the old framing; auto levels re-measure on the new one.
     setMode(null);
     refresh();
-    $('hint').textContent = frameWarning();
+    showResult(false);
   });
-  $('cropCancel').addEventListener('click', () => { setMode(null); refresh(); });
+  $('cropCancel').addEventListener('click', () => { setMode(null); refresh(); showResult(false); });
+  $('toResult').addEventListener('click', () => { setMode(null); refresh(); showResult(false); });
   $('cropBtn').addEventListener('click', () => {
     setMode(state.mode === 'crop' ? null : 'crop');
     refresh();
@@ -735,7 +1000,13 @@
   if (!cameraAllowed) useNativeCamera();
   else $('liveBtn').hidden = false;
 
-  $('liveBtn').addEventListener('click', async () => {
+  let usedLiveCamera = false, reviewing = false;
+  async function openLive() {
+    // Show the camera screen at once; the stream can take a moment to start.
+    $('start').hidden = true; $('editor').hidden = true; $('result').hidden = true;
+    $('live').hidden = false;
+    lctx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
+    $('liveMsg').textContent = 'פותח מצלמה…';
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -743,20 +1014,27 @@
       });
     } catch (err) {
       stream = null;
+      $('live').hidden = true;
+      $('start').hidden = false;
       useNativeCamera('המצלמה החיה לא זמינה כאן – השתמשו ב"צלם עכשיו", הפריים יזוהה אוטומטית');
       return;
     }
+    usedLiveCamera = true;
     video.srcObject = stream;
     await video.play().catch(() => {});
     state.balance = [1, 1, 1];
+    state.base = null;
     resetSliders();
-    liveHist = null; liveFrame = 0;
+    liveHist = null; liveFrame = 0; reviewing = false;
+    $('start').hidden = true; $('editor').hidden = true; $('result').hidden = true;
     $('live').hidden = false;
     liveLoop();
-  });
+  }
+  $('liveBtn').addEventListener('click', openLive);
 
   function liveLoop() {
     if (!stream) return;
+    if (reviewing) { liveRaf = requestAnimationFrame(liveLoop); return; }
     const vw = video.videoWidth, vh = video.videoHeight;
     if (vw) {
       const s = Math.min(1, 720 / Math.max(vw, vh));
@@ -777,26 +1055,47 @@
           : frame;
         liveHist = histograms(region.data);
         $('liveMsg').textContent = liveBox
-          ? 'הפריים זוהה – החזיקו את כפתור הצילום 3 שניות'
+          ? 'החזיקו את כפתור הצילום 3 שניות'
           : 'כוונו לנגטיב מול אור לבן';
       }
+      // Clean viewfinder like FilmBox: the whole view as a positive, no box while aiming.
       process(frame, frame, buildLuts(liveHist));
       lctx.putImageData(frame, 0, 0);
-      if (liveBox) {
-        const bx = liveBox.x * w, by = liveBox.y * h, bw = liveBox.w * w, bh = liveBox.h * h;
-        lctx.strokeStyle = '#e8913a';
-        lctx.lineWidth = Math.max(2, w / 240);
-        lctx.strokeRect(bx, by, bw, bh);
-        if (scan) {   // scanner line sweeping down the frame
-          const p = Math.min(1, (performance.now() - scan.t0) / SCAN_MS);
-          lctx.fillStyle = 'rgba(232,145,58,.25)';
-          lctx.fillRect(bx, by, bw, bh * p);
-          lctx.fillStyle = '#e8913a';
-          lctx.fillRect(bx, by + bh * p - 2, bw, 4);
-        }
-      }
     }
     if (stream) liveRaf = requestAnimationFrame(liveLoop);
+  }
+
+  // After the scan: freeze the view, darken everything but the chosen picture, outline it with a
+  // dashed line and sweep a red "scan" over it, then hand over to the result screen.
+  function playCaptureReview(box, done) {
+    if (!box) { done(); return; }
+    reviewing = true;
+    const W = liveCanvas.width, H = liveCanvas.height;
+    const frozen = lctx.getImageData(0, 0, W, H);
+    const bx = box.x * W, by = box.y * H, bw = box.w * W, bh = box.h * H;
+    const t0 = performance.now(), DUR = 1300;
+    const lw = Math.max(2, W / 260);
+    (function step() {
+      const p = Math.min(1, (performance.now() - t0) / DUR);
+      lctx.putImageData(frozen, 0, 0);
+      lctx.fillStyle = 'rgba(0,0,0,.62)';
+      lctx.fillRect(0, 0, W, by);
+      lctx.fillRect(0, by + bh, W, H - by - bh);
+      lctx.fillRect(0, by, bx, bh);
+      lctx.fillRect(bx + bw, by, W - bx - bw, bh);
+      lctx.fillStyle = 'rgba(224,56,62,.32)';
+      lctx.fillRect(bx, by, bw, bh * p);
+      lctx.fillStyle = 'rgba(224,56,62,.9)';
+      lctx.fillRect(bx, by + bh * p - lw, bw, lw * 2);
+      lctx.setLineDash([lw * 4, lw * 3]);
+      lctx.lineDashOffset = -p * lw * 40;
+      lctx.strokeStyle = '#fff';
+      lctx.lineWidth = lw;
+      lctx.strokeRect(bx, by, bw, bh);
+      lctx.setLineDash([]);
+      if (p < 1) requestAnimationFrame(step);
+      else done();
+    })();
   }
 
   /* ---------- Hold-to-scan ---------- */
@@ -835,7 +1134,7 @@
   }
 
   function startScan() {
-    if (!stream || scan || !video.videoWidth) return;
+    if (!stream || scan || reviewing || !video.videoWidth) return;
     const vw = video.videoWidth, vh = video.videoHeight;
     const b = liveBox || { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
     // Capture a margin around the frame so shake can be compensated; the editor trims it again.
@@ -849,7 +1148,7 @@
       x: (b.x * vw - rx) / rw, y: (b.y * vh - ry) / rh, w: b.w * vw / rw, h: b.h * vh / rh,
     } : null;
     scan = {
-      t0: performance.now(), held: true, n: 0, rx, ry, rw, rh, cap, crop,
+      t0: performance.now(), held: true, n: 0, rx, ry, rw, rh, cap, crop, box: liveBox,
       cctx: cap.getContext('2d', { willReadFrequently: true }),
       acc: new Float32Array(rw * rh * 3), cnt: new Uint16Array(rw * rh), ref: null,
     };
@@ -896,20 +1195,23 @@
       d[i * 4] = s.acc[i * 3] / k; d[i * 4 + 1] = s.acc[i * 3 + 1] / k; d[i * 4 + 2] = s.acc[i * 3 + 2] / k; d[i * 4 + 3] = 255;
     }
     s.cctx.putImageData(out, 0, 0);
-    closeLive();
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    openEditor(s.cap, 'film-' + stamp, s.crop);
-    alertStatus(`נסרק ומוזג מ-${s.n} פריימים`);
+    $('liveMsg').textContent = '';
+    playCaptureReview(s.box, () => {
+      closeLive();
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      openEditor(s.cap, 'film-' + stamp, s.crop);
+    });
   }
 
   function closeLive() {
     cancelAnimationFrame(liveRaf);
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = null;
+    reviewing = false;
     video.srcObject = null;
     $('live').hidden = true;
   }
-  $('liveClose').addEventListener('click', closeLive);
+  $('liveClose').addEventListener('click', () => { closeLive(); $('start').hidden = false; });
 
   const shutter = $('shutter');
   shutter.addEventListener('pointerdown', e => {
@@ -923,9 +1225,36 @@
   shutter.addEventListener('contextmenu', e => e.preventDefault());
   // Keyboard: Enter/Space runs a full-length scan.
   shutter.addEventListener('click', e => { if (e.detail === 0) startScan(); });
+  // Normalized point: oriented (rotated, then mirrored) image <-> source image.
+  function toSource(u, v, rot, flip) {
+    if (flip) u = 1 - u;
+    switch (rot) {
+      case 90: return [v, 1 - u];
+      case 180: return [1 - u, 1 - v];
+      case 270: return [1 - v, u];
+      default: return [u, v];
+    }
+  }
+  function toOriented(x, y, rot, flip) {
+    let u, v;
+    switch (rot) {
+      case 90: u = 1 - y; v = x; break;
+      case 180: u = 1 - x; v = 1 - y; break;
+      case 270: u = y; v = 1 - x; break;
+      default: u = x; v = y;
+    }
+    return [flip ? 1 - u : u, v];
+  }
+  // Rotating or mirroring keeps the same picture cropped.
   function reorient(fn) {
+    const c = state.crop, r0 = state.rot, f0 = state.flip;
+    const a = toSource(c.x, c.y, r0, f0), b = toSource(c.x + c.w, c.y + c.h, r0, f0);
     fn();
-    state.crop = { x: 0, y: 0, w: 1, h: 1 };
+    const p = toOriented(a[0], a[1], state.rot, state.flip), q = toOriented(b[0], b[1], state.rot, state.flip);
+    state.crop = {
+      x: Math.min(p[0], q[0]), y: Math.min(p[1], q[1]),
+      w: Math.abs(q[0] - p[0]), h: Math.abs(q[1] - p[1]),
+    };
     setMode(null); refresh();
   }
   $('rotL').addEventListener('click', () => reorient(() => { state.rot = (state.rot + 270) % 360; }));
@@ -1061,16 +1390,21 @@
       }
       return;
     }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = fileName();
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    downloadBlob(blob, fileName());
     alertStatus(`נשמר: ${fileName()} (${(blob.size / 1048576).toFixed(1)}MB)`);
   }));
 
+  function downloadBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
   // Native share sheet on phones -> "Save Image" puts it straight in the photo gallery.
   const canShareFiles = !!(navigator.canShare && navigator.canShare({ files: [new File([''], 'x.jpg', { type: 'image/jpeg' })] }));
+  const preferShare = canShareFiles && matchMedia('(pointer: coarse)').matches;
   $('shareBtn').hidden = !canShareFiles;
   $('shareBtn').addEventListener('click', () => withBusy($('shareBtn'), async () => {
     const blob = await renderFull();
@@ -1080,10 +1414,10 @@
   }));
 
   $('newBtn').addEventListener('click', () => {
-    state.img = null; raw = null; hist = null;
     setMode(null);
-    $('editor').hidden = true; $('start').hidden = false;
+    $('editor').hidden = true;
     alertStatus('');
+    backToCapture();
   });
 
   /* ---------- Compare (hold to see the original) ---------- */
