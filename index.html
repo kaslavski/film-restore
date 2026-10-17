@@ -1,0 +1,1121 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14110e">
+<title>שחזור פילם</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  :root {
+    --bg: #14110e;
+    --panel: #1e1a16;
+    --line: #342d26;
+    --text: #efe7dc;
+    --muted: #a79b8c;
+    --accent: #e8913a;
+    --accent-ink: #1b1209;
+    --radius: 10px;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 15px/1.5 "Segoe UI", "Rubik", "Heebo", Arial, sans-serif;
+    padding-block: 0;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    min-height: 100vh;
+  }
+  [hidden] { display: none !important; }
+  header { max-width: 1200px; margin: 0 auto; padding: 18px 0 10px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: .3px; }
+  h1 span { color: var(--accent); }
+  header p { margin: 0; color: var(--muted); }
+
+  main { max-width: 1200px; margin: 0 auto; padding-bottom: 32px; }
+
+  button, .btn, select {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px;
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 40px;
+  }
+  button:hover, .btn:hover { border-color: #5a4d40; }
+  button.primary, .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.active { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+
+  /* ---------- Start screen ---------- */
+  .start { display: grid; grid-template-columns: 1.1fr 1fr; gap: 28px; margin-top: 18px; }
+  .drop {
+    border: 1.5px dashed #4a3f34; border-radius: 14px; padding: 40px 24px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; min-height: 300px;
+    background: repeating-linear-gradient(90deg, transparent 0 22px, rgba(232,145,58,.04) 22px 26px);
+  }
+  .drop.over { border-color: var(--accent); }
+  .drop .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .drop small { color: var(--muted); }
+  .tips h2 { font-size: 16px; margin: 0 0 10px; }
+  .tips ol { margin: 0; padding-inline-start: 20px; color: var(--muted); }
+  .tips li { margin-bottom: 8px; }
+  .tips li b { color: var(--text); font-weight: 600; }
+  .tips .btn { margin-top: 10px; }
+
+  /* ---------- Editor ---------- */
+  .editor { display: grid; grid-template-columns: 1fr 320px; gap: 20px; margin-top: 14px; align-items: start; }
+  .stage {
+    background: #0c0a08; border-radius: 12px; min-height: 300px; padding: 12px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  }
+  .canvas-wrap { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+  #view { display: block; max-width: 100%; max-height: 72vh; height: auto; }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; touch-action: none; }
+  #overlay.live { pointer-events: auto; cursor: crosshair; }
+  .hint { color: var(--accent); min-height: 22px; text-align: center; font-size: 14px; }
+  .stage-bar { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 16px; }
+  .group h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .5px; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; font-size: 13px; padding: 8px 4px; }
+  .seg button + button { border-inline-start: 1px solid var(--line); }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .tools { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tools button { flex: 1 1 auto; font-size: 13px; padding: 7px 10px; min-height: 36px; }
+
+  .slider { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-bottom: 8px; }
+  .slider label { font-size: 13px; }
+  .slider output { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .slider input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); direction: ltr; }
+
+  .export-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .export-row select { min-height: 36px; padding: 6px 8px; }
+  .export-row label { font-size: 13px; color: var(--muted); }
+  .big { width: 100%; }
+  .status { font-size: 13px; color: var(--muted); min-height: 18px; }
+
+  /* White light panel (turn a tablet / laptop into a light box) */
+  #lightbox { position: fixed; inset: 0; background: #fff; z-index: 50; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 24px; }
+  #lightbox span { color: #bbb; font-size: 13px; }
+
+  /* Live camera: the negative is shown as a positive while aiming */
+  #live { position: fixed; inset: 0; z-index: 40; background: #000; display: flex; flex-direction: column; }
+  #live video { display: none; }
+  .live-view { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  #liveCanvas { max-width: 100%; max-height: 100%; }
+  .live-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px max(16px, env(safe-area-inset-right, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+    background: rgba(0,0,0,.6);
+  }
+  .live-bar .seg { flex: 0 1 260px; }
+  .live-msg { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); inset-inline: 16px; text-align: center; color: var(--accent); font-size: 14px; text-shadow: 0 1px 3px #000; }
+  #shutter {
+    width: 72px; height: 72px; min-height: 72px; border-radius: 50%; padding: 0; flex: none;
+    background: #fff; border: 5px solid var(--accent);
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  }
+  #shutter:active { transform: scale(.94); }
+  #shutter.scanning { background: conic-gradient(var(--accent) calc(var(--p, 0) * 1turn), #fff 0); touch-action: none; }
+
+  @media (max-width: 860px) {
+    .start, .editor { grid-template-columns: 1fr; }
+    #view { max-height: 60vh; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>שחזור <span>פילם</span></h1>
+  <p>מצלמים נגטיב מול אור לבן – ומקבלים תמונה אמיתית, מוכנה להורדה.</p>
+</header>
+
+<main>
+  <!-- ===== Start screen ===== -->
+  <section id="start" class="start">
+    <div class="drop" id="drop">
+      <div style="font-size:18px;font-weight:600">העלו צילום של הנגטיב</div>
+      <div class="row">
+        <button class="primary" id="liveBtn" hidden>🎞️ מצלמה חיה</button>
+        <label class="btn" id="camLabel">📷 צלם עכשיו
+          <input type="file" accept="image/*" capture="environment" id="camInput" hidden>
+        </label>
+        <label class="btn">🖼️ בחר מהגלריה / מהמחשב
+          <input type="file" accept="image/*" id="fileInput" hidden>
+        </label>
+      </div>
+      <div class="hint" id="startMsg"></div>
+      <small>או גררו קובץ תמונה לכאן · הכל מעובד במכשיר שלכם, שום דבר לא נשלח לשרת</small>
+    </div>
+
+    <div class="tips">
+      <h2>איך מצלמים נכון</h2>
+      <ol>
+        <li><b>מקור אור לבן ואחיד</b> – קופסת אור, או מסך של טאבלט/מחשב נייד במצב "מסך לבן" (כפתור למטה).</li>
+        <li><b>חדר חשוך</b> – כבו אורות כדי שלא יהיו השתקפויות על הפילם.</li>
+        <li><b>הטלפון מקביל לפילם</b> – בדיוק מעליו, בלי זווית. בלי פלאש.</li>
+        <li><b>מלאו את המסגרת</b> – קרוב ככל שהפוקוס מאפשר, ולחצו על המסך כדי למקד.</li>
+        <li><b>השאירו פס קטן מהשוליים הכתומים</b> של הפילם – תוכלו לדגום אותו לאיזון צבעים מדויק.</li>
+      </ol>
+      <button class="btn" id="lightBtn">💡 הפוך את המסך הזה לאור לבן</button>
+    </div>
+  </section>
+
+  <!-- ===== Editor ===== -->
+  <section id="editor" class="editor" hidden>
+    <div class="stage">
+      <div class="canvas-wrap">
+        <canvas id="view"></canvas>
+        <canvas id="overlay"></canvas>
+      </div>
+      <div class="hint" id="hint"></div>
+      <div class="stage-bar" id="cropBar" hidden>
+        <button class="primary" id="cropApply">✓ החל חיתוך</button>
+        <button id="cropCancel">ביטול</button>
+      </div>
+    </div>
+
+    <aside class="panel">
+      <div class="group">
+        <h3>סוג הפילם</h3>
+        <div class="seg" id="typeSeg">
+          <button data-type="color" class="on">נגטיב צבע</button>
+          <button data-type="bw">נגטיב ש/ל</button>
+          <button data-type="slide">שקופית</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h3>מסגור</h3>
+        <div class="tools">
+          <button id="cropBtn">✂️ חיתוך</button>
+          <button id="rotL" title="סובב שמאלה">⟲</button>
+          <button id="rotR" title="סובב ימינה">⟳</button>
+          <button id="flipBtn" title="היפוך מראה">⇋ מראה</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h3>איזון צבע</h3>
+        <div class="tools">
+          <button id="pickBase">🎯 דגום שוליים כתומים</button>
+          <button id="pickGray">⚪ דגום אפור/לבן</button>
+          <button id="autoBtn">↺ אוטומטי</button>
+        </div>
+      </div>
+
+      <div class="group" id="sliders">
+        <h3>כיוונון</h3>
+      </div>
+
+      <div class="group">
+        <h3>שמירה</h3>
+        <div class="export-row">
+          <label for="size">גודל</label>
+          <select id="size">
+            <option value="3600">רגיל – 3600 פיקסלים</option>
+            <option value="6000">גדול – 6000 פיקסלים</option>
+            <option value="0">כמו בצילום</option>
+          </select>
+          <label for="fmt">פורמט</label>
+          <select id="fmt">
+            <option value="image/jpeg">JPEG</option>
+            <option value="image/png">PNG (ללא דחיסה)</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+          <button class="primary big" id="downloadBtn">⬇️ הורד למחשב / לטלפון</button>
+          <button class="big" id="shareBtn" hidden>📲 שמור לגלריה / שתף</button>
+          <button class="big" id="newBtn">＋ תמונה חדשה</button>
+        </div>
+        <div class="status" id="status"></div>
+      </div>
+    </aside>
+  </section>
+</main>
+
+<section id="live" hidden>
+  <video id="video" playsinline muted></video>
+  <div class="live-view"><canvas id="liveCanvas"></canvas></div>
+  <div class="live-msg" id="liveMsg">כוונו לנגטיב – הפריים יזוהה אוטומטית</div>
+  <div class="live-bar">
+    <button id="liveClose">✕ סגור</button>
+    <button id="shutter" aria-label="צלם"></button>
+    <div class="seg" id="liveType">
+      <button data-type="color" class="on">צבע</button>
+      <button data-type="bw">ש/ל</button>
+      <button data-type="slide">שקופית</button>
+    </div>
+  </div>
+</section>
+
+<div id="lightbox" hidden><span>לחצו בכל מקום כדי לצאת</span></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const PREVIEW_SIDE = 1400;          // long side of the on-screen preview
+  const EXPORT_PIXELS = 16e6;         // iOS Safari canvas limit is ~16.7MP
+  const CLIP = 0.002;                 // ignore the darkest/brightest 0.2% for auto levels
+
+  const $ = (id) => document.getElementById(id);
+  const view = $('view'), overlay = $('overlay');
+  const vctx = view.getContext('2d');
+  const octx = overlay.getContext('2d');
+
+  const SLIDERS = [
+    { key: 'exposure', label: 'חשיפה',        min: -2,   max: 2,   step: 0.05, def: 0,  fmt: v => (v > 0 ? '+' : '') + v.toFixed(2) },
+    { key: 'contrast', label: 'ניגודיות',      min: -0.6, max: 1,   step: 0.02, def: 0,  fmt: v => Math.round(v * 100) },
+    { key: 'gamma',    label: 'גווני ביניים',  min: 0.4,  max: 2.5, step: 0.02, def: 1,  fmt: v => v.toFixed(2) },
+    { key: 'temp',     label: 'טמפרטורה (קר ↔ חם)', min: -1, max: 1, step: 0.02, def: 0, fmt: v => Math.round(v * 100) },
+    { key: 'tint',     label: 'גוון (ירוק ↔ מג׳נטה)', min: -1, max: 1, step: 0.02, def: 0, fmt: v => Math.round(v * 100) },
+    { key: 'sat',      label: 'רוויה',         min: -1,   max: 1,   step: 0.02, def: 0,  fmt: v => Math.round(v * 100) },
+  ];
+
+  const state = {
+    img: null, name: 'film',
+    rot: 0, flip: false,
+    crop: { x: 0, y: 0, w: 1, h: 1 },
+    type: 'color',
+    base: null,                 // sampled film-base color [r,g,b]
+    balance: [1, 1, 1],         // per-channel gamma from the gray pick
+    adj: {},
+    mode: null,                 // null | 'crop' | 'base' | 'gray'
+  };
+  let raw = null;               // ImageData of the oriented + cropped preview (unprocessed)
+  let hist = null;              // [r,g,b,lum] histograms of `raw`
+  let cropDraft = null, dragStart = null;
+  let paintQueued = false;
+
+  /* ---------- Sliders ---------- */
+  const sliderBox = $('sliders');
+  for (const s of SLIDERS) {
+    const wrap = document.createElement('div');
+    wrap.className = 'slider';
+    wrap.innerHTML = `<label for="s-${s.key}"></label><output id="o-${s.key}"></output>
+      <input type="range" id="s-${s.key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.def}">`;
+    wrap.querySelector('label').textContent = s.label;
+    sliderBox.appendChild(wrap);
+    const input = wrap.querySelector('input');
+    input.addEventListener('input', () => { state.adj[s.key] = +input.value; showSlider(s); queuePaint(); });
+    input.addEventListener('dblclick', () => { input.value = s.def; input.dispatchEvent(new Event('input')); });
+  }
+  function showSlider(s) { $('o-' + s.key).textContent = s.fmt(state.adj[s.key]); }
+  function resetSliders() {
+    for (const s of SLIDERS) { state.adj[s.key] = s.def; $('s-' + s.key).value = s.def; showSlider(s); }
+  }
+  resetSliders();
+
+  /* ---------- Loading ---------- */
+  function loadFile(file) {
+    if (!file || !file.type.startsWith('image/')) { alertStatus('הקובץ אינו תמונה'); return; }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => openEditor(img, (file.name || 'film').replace(/\.[^.]+$/, '') || 'film');
+    img.onerror = () => alertStatus('לא ניתן לפתוח את התמונה');
+    img.src = url;
+  }
+
+  // Enlarging can't invent detail: a frame that covers few camera pixels stays soft however big it's saved.
+  function frameWarning() {
+    const img = state.img;
+    const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+    const turned = state.rot % 180 !== 0;
+    const w = Math.round(state.crop.w * (turned ? ih : iw)), h = Math.round(state.crop.h * (turned ? iw : ih));
+    return Math.max(w, h) < 2000
+      ? `⚠️ הפריים תופס רק ${w}×${h} פיקסלים בצילום – לתמונה חדה קרבו את הטלפון כך שהפריים ימלא את כל המסך`
+      : '';
+  }
+
+  // Any source (photo file or camera frame): find the film frame, crop to it and show the positive.
+  function openEditor(src, name, knownCrop) {
+    state.img = src;
+    state.name = name;
+    state.rot = 0; state.flip = false;
+    state.crop = { x: 0, y: 0, w: 1, h: 1 };
+    state.base = null; state.balance = [1, 1, 1];
+    resetSliders();
+    $('start').hidden = true; $('editor').hidden = false;
+    setMode(null);
+    let box = knownCrop;
+    if (!box) {
+      const probe = drawOriented(state.crop, 500, Infinity);
+      box = detectFrame(probe.getContext('2d').getImageData(0, 0, probe.width, probe.height));
+    }
+    if (box) {
+      state.crop = box;
+      refresh();
+      $('hint').textContent = frameWarning() || 'הפריים זוהה וחותך אוטומטית · אפשר לתקן ב"חיתוך"';
+    } else {
+      // No light box around the film was found: let the user frame it by hand.
+      setMode('crop');
+      refresh();
+    }
+  }
+  $('camInput').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+  $('fileInput').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+  const drop = $('drop');
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); loadFile(e.dataTransfer.files[0]); });
+
+  /* ---------- Geometry ---------- */
+  // Draws the source rotated/flipped, cropped to `crop` (normalized to the oriented image), scaled down to fit.
+  // With `targetSide`, the crop is scaled (up or down) so its long side matches it: a small frame becomes a full-size photo.
+  function drawOriented(crop, maxSide, maxPixels, targetSide) {
+    const img = state.img;
+    const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+    const turned = state.rot % 180 !== 0;
+    const sw = turned ? ih : iw, sh = turned ? iw : ih;
+    const cw = crop.w * sw, ch = crop.h * sh;
+    const base = targetSide ? targetSide / Math.max(cw, ch) : 1;
+    const s = Math.min(base, maxSide / Math.max(cw, ch), Math.sqrt(maxPixels / (cw * ch)));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(cw * s));
+    c.height = Math.max(1, Math.round(ch * s));
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingQuality = 'high';
+    ctx.scale(s, s);
+    ctx.translate(-crop.x * sw, -crop.y * sh);
+    if (state.flip) { ctx.translate(sw, 0); ctx.scale(-1, 1); }
+    ctx.translate(sw / 2, sh / 2);
+    ctx.rotate(state.rot * Math.PI / 180);
+    ctx.drawImage(img, -iw / 2, -ih / 2);
+    return c;
+  }
+
+  function refresh() {
+    const crop = state.mode === 'crop' ? { x: 0, y: 0, w: 1, h: 1 } : state.crop;
+    const c = drawOriented(crop, PREVIEW_SIDE, Infinity);
+    raw = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+    view.width = overlay.width = c.width;
+    view.height = overlay.height = c.height;
+    if (state.mode === 'crop') {
+      vctx.putImageData(raw, 0, 0);
+      drawCrop();
+    } else {
+      hist = histograms(raw.data);
+      paint();
+    }
+  }
+
+  /* ---------- Color science ---------- */
+  function histograms(d) {
+    const h = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      h[0][r]++; h[1][g]++; h[2][b]++;
+      h[3][(r * 0.299 + g * 0.587 + b * 0.114) | 0]++;
+    }
+    return h;
+  }
+  function percentile(h, p) {
+    let total = 0; for (let i = 0; i < 256; i++) total += h[i];
+    const target = total * p; let acc = 0;
+    for (let i = 0; i < 256; i++) { acc += h[i]; if (acc >= target) return i; }
+    return 255;
+  }
+
+  /* ---------- Automatic frame detection ---------- */
+  // Stretches of indices in [a, b) passing `test`, bridging tiny gaps (a dark spot inside a picture).
+  // Returns the longest one, or with `center` the real stretch nearest to it: when several frames of a
+  // strip are in view, that is the frame being aimed at.
+  function pickRun(a, b, test, center) {
+    const gap = Math.max(1, Math.round((b - a) * 0.01));
+    const runs = [];
+    let start = -1, lastTrue = -1;
+    for (let i = a; i < b; i++) {
+      if (!test(i)) continue;
+      if (start < 0) start = i;
+      else if (i - lastTrue - 1 > gap) { runs.push([start, lastTrue + 1]); start = i; }
+      lastTrue = i;
+    }
+    if (start >= 0) runs.push([start, lastTrue + 1]);
+    if (!runs.length) return null;
+    const len = r => r[1] - r[0];
+    const longest = Math.max(...runs.map(len));
+    const real = runs.filter(r => len(r) >= longest * 0.35);
+    if (center === undefined) return real.find(r => len(r) === longest);
+    const dist = r => (r[0] <= center && center < r[1]) ? 0 : Math.min(Math.abs(r[0] - center), Math.abs(r[1] - center));
+    return real.reduce((best, r) => dist(r) < dist(best) ? r : best);
+  }
+
+  // Shrinks the region to the rows/columns that are mostly `mask`, alternating axes so each pass sharpens the other.
+  function maskBox(m, W, r, frac, center) {
+    let { x0, y0, x1, y1 } = r;
+    for (let pass = 0; pass < 3; pass++) {
+      const f = pass === 0 ? frac * 0.6 : frac;
+      const cols = pickRun(x0, x1, x => {
+        let s = 0; for (let y = y0; y < y1; y++) s += m[y * W + x];
+        return s > f * (y1 - y0);
+      }, center && center.x);
+      if (!cols) return null;
+      [x0, x1] = cols;
+      const rows = pickRun(y0, y1, y => {
+        let s = 0; const o = y * W; for (let x = x0; x < x1; x++) s += m[o + x];
+        return s > f * (x1 - x0);
+      }, center && center.y);
+      if (!rows) return null;
+      [y0, y1] = rows;
+    }
+    return { x0, y0, x1, y1 };
+  }
+
+  // Photo of film on a light box -> normalized crop of the exposed picture, or null if it can't be told apart.
+  function detectFrame(img) {
+    const W = img.width, H = img.height, d = img.data, N = W * H;
+    const mn = new Uint8Array(N), lum = new Uint8Array(N), hMin = new Uint32Array(256);
+    for (let i = 0, p = 0; i < N; i++, p += 4) {
+      const r = d[p], g = d[p + 1], b = d[p + 2];
+      mn[i] = Math.min(r, g, b);
+      lum[i] = (r * 0.299 + g * 0.587 + b * 0.114) | 0;
+      hMin[mn[i]]++;
+    }
+    // The backlight is bright in every channel; film (even the clear orange base) is dark in at least one.
+    const light = percentile(hMin, 0.99);
+    if (light < 120) return null;
+    const film = new Uint8Array(N);
+    for (let i = 0; i < N; i++) film[i] = mn[i] < light * 0.8 ? 1 : 0;
+    const strip = maskBox(film, W, { x0: 0, y0: 0, x1: W, y1: H }, 0.5);
+    if (!strip) return null;
+    const area = b => (b.x1 - b.x0) * (b.y1 - b.y0);
+    if (area(strip) < N * 0.05) return null;
+
+    // Inside the strip, the unexposed base/border is the brightest film; the picture is denser.
+    const hLum = new Uint32Array(256);
+    for (let y = strip.y0; y < strip.y1; y++)
+      for (let x = strip.x0; x < strip.x1; x++) { const i = y * W + x; if (film[i]) hLum[lum[i]]++; }
+    const baseLum = percentile(hLum, 0.95);
+    const exposed = new Uint8Array(N);
+    for (let i = 0; i < N; i++) exposed[i] = film[i] && lum[i] < baseLum * 0.85 ? 1 : 0;
+    const pic = maskBox(exposed, W, strip, 0.5, { x: W / 2, y: H / 2 });
+    const box = pic && area(pic) >= N * 0.03 ? pic : strip;
+
+    // Trim a hair inside so no border or light leaks into the picture.
+    const ix = (box.x1 - box.x0) * 0.015, iy = (box.y1 - box.y0) * 0.015;
+    return {
+      x: (box.x0 + ix) / W, y: (box.y0 + iy) / H,
+      w: (box.x1 - box.x0 - 2 * ix) / W, h: (box.y1 - box.y0 - 2 * iy) / H,
+    };
+  }
+
+  // Input value -> normalized positive (0..1) for channel c, before creative adjustments.
+  function makeBaseCurve(c, hs = hist) {
+    const bw = state.type === 'bw';
+    const h = hs[bw ? 3 : c];
+    let lo = percentile(h, CLIP), hi = percentile(h, 1 - CLIP);
+    if (state.base && state.type !== 'slide') {
+      // The film base (unexposed film) is the brightest thing in a negative -> it becomes pure black.
+      const b = state.base;
+      hi = bw ? b[0] * 0.299 + b[1] * 0.587 + b[2] * 0.114 : b[c];
+    }
+    lo = Math.max(lo, 0.5);
+    if (hi <= lo + 1) hi = lo + 1;
+    if (state.type === 'slide') return v => (v - lo) / (hi - lo);
+    // Negatives: density relative to the base, stretched per channel. This also removes the orange mask.
+    const span = Math.log(hi / lo);
+    return v => Math.log(hi / Math.max(v, 0.5)) / span;
+  }
+
+  const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
+
+  // `size` > 256 gives a fine-grained curve for smoothed (fractional) input values.
+  function buildLuts(hs = hist, size = 256) {
+    const a = state.adj;
+    const expo = Math.pow(2, a.exposure);
+    const gains = [1 + a.temp * 0.18, 1 - a.tint * 0.18, 1 - a.temp * 0.18];
+    const k = 1 + a.contrast;
+    const bal = state.type === 'bw' ? [1, 1, 1] : state.balance;
+    const luts = [];
+    for (let c = 0; c < 3; c++) {
+      const base = makeBaseCurve(c, hs);
+      const lut = new Float32Array(size);
+      for (let v = 0; v < size; v++) {
+        let n = Math.pow(clamp01(base(v * 255 / (size - 1))), bal[c]);
+        n = n * expo * gains[c];
+        n = (n - 0.5) * k + 0.5;
+        n = Math.pow(clamp01(n), 1 / a.gamma);
+        lut[v] = n * 255;
+      }
+      luts.push(lut);
+    }
+    return luts;
+  }
+
+  function process(src, dst, luts) {
+    const s = src.data, d = dst.data;
+    const bw = state.type === 'bw';
+    const sat = 1 + state.adj.sat;
+    const [lr, lg, lb] = luts;
+    for (let i = 0; i < s.length; i += 4) {
+      let r, g, b;
+      if (bw) {
+        const l = (s[i] * 0.299 + s[i + 1] * 0.587 + s[i + 2] * 0.114) | 0;
+        r = g = b = lr[l];
+      } else {
+        r = lr[s[i]]; g = lg[s[i + 1]]; b = lb[s[i + 2]];
+        if (sat !== 1) {
+          const y = r * 0.299 + g * 0.587 + b * 0.114;
+          r = y + (r - y) * sat; g = y + (g - y) * sat; b = y + (b - y) * sat;
+        }
+      }
+      d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255;
+    }
+  }
+
+  function paint() {
+    paintQueued = false;
+    if (!raw || state.mode === 'crop') return;
+    const out = vctx.createImageData(raw.width, raw.height);
+    process(raw, out, buildLuts());
+    vctx.putImageData(out, 0, 0);
+  }
+  function queuePaint() {
+    if (!paintQueued) { paintQueued = true; requestAnimationFrame(paint); }
+  }
+
+  /* ---------- Modes: crop / pick base / pick gray ---------- */
+  const HINTS = {
+    crop: 'גררו מלבן סביב התמונה עצמה (בלי האור שמסביב), ואז "החל חיתוך"',
+    base: 'לחצו על השוליים הכתומים/השקופים של הפילם – אזור ללא תמונה',
+    gray: 'לחצו על משהו שאמור להיות אפור או לבן (קיר, חולצה לבנה, ענן)',
+  };
+  function setMode(mode) {
+    state.mode = mode;
+    $('hint').textContent = HINTS[mode] || '';
+    overlay.classList.toggle('live', !!mode);
+    $('cropBar').hidden = mode !== 'crop';
+    $('cropBtn').classList.toggle('active', mode === 'crop');
+    $('pickBase').classList.toggle('active', mode === 'base');
+    $('pickGray').classList.toggle('active', mode === 'gray');
+    octx.clearRect(0, 0, overlay.width, overlay.height);
+    if (mode === 'crop') cropDraft = { ...state.crop };
+  }
+
+  function pointerPos(e) {
+    const r = overlay.getBoundingClientRect();
+    return { x: clamp01((e.clientX - r.left) / r.width), y: clamp01((e.clientY - r.top) / r.height) };
+  }
+
+  overlay.addEventListener('pointerdown', e => {
+    if (!state.mode) return;
+    e.preventDefault();
+    const p = pointerPos(e);
+    if (state.mode === 'crop') {
+      dragStart = p;
+      try { overlay.setPointerCapture(e.pointerId); } catch (_) { /* capture is optional */ }
+      cropDraft = { x: p.x, y: p.y, w: 0, h: 0 };
+      drawCrop();
+    } else {
+      samplePoint(p);
+    }
+  });
+  overlay.addEventListener('pointermove', e => {
+    if (state.mode !== 'crop' || !dragStart) return;
+    const p = pointerPos(e);
+    cropDraft = {
+      x: Math.min(dragStart.x, p.x), y: Math.min(dragStart.y, p.y),
+      w: Math.abs(p.x - dragStart.x), h: Math.abs(p.y - dragStart.y),
+    };
+    drawCrop();
+  });
+  const endDrag = () => { dragStart = null; };
+  overlay.addEventListener('pointerup', endDrag);
+  overlay.addEventListener('pointercancel', endDrag);
+
+  function drawCrop() {
+    const W = overlay.width, H = overlay.height, c = cropDraft;
+    octx.clearRect(0, 0, W, H);
+    if (!c) return;
+    octx.fillStyle = 'rgba(0,0,0,.55)';
+    octx.fillRect(0, 0, W, H);
+    octx.clearRect(c.x * W, c.y * H, c.w * W, c.h * H);
+    octx.strokeStyle = '#e8913a';
+    octx.lineWidth = Math.max(2, W / 400);
+    octx.strokeRect(c.x * W, c.y * H, c.w * W, c.h * H);
+  }
+
+  // Composes a crop made on the full oriented image; tiny accidental drags keep the full frame.
+  $('cropApply').addEventListener('click', () => {
+    const c = cropDraft;
+    state.crop = c && c.w > 0.02 && c.h > 0.02 ? c : { x: 0, y: 0, w: 1, h: 1 };
+    // Color picks were measured on the old framing; auto levels re-measure on the new one.
+    setMode(null);
+    refresh();
+    $('hint').textContent = frameWarning();
+  });
+  $('cropCancel').addEventListener('click', () => { setMode(null); refresh(); });
+  $('cropBtn').addEventListener('click', () => {
+    setMode(state.mode === 'crop' ? null : 'crop');
+    refresh();
+  });
+
+  function sampleAt(p) {
+    const W = raw.width, H = raw.height, d = raw.data;
+    const cx = Math.round(p.x * (W - 1)), cy = Math.round(p.y * (H - 1));
+    const R = Math.max(2, Math.round(Math.min(W, H) / 150));
+    const sum = [0, 0, 0]; let n = 0;
+    for (let y = Math.max(0, cy - R); y <= Math.min(H - 1, cy + R); y++) {
+      for (let x = Math.max(0, cx - R); x <= Math.min(W - 1, cx + R); x++) {
+        const i = (y * W + x) * 4;
+        sum[0] += d[i]; sum[1] += d[i + 1]; sum[2] += d[i + 2]; n++;
+      }
+    }
+    return sum.map(v => v / n);
+  }
+
+  function samplePoint(p) {
+    const rgb = sampleAt(p);
+    if (state.mode === 'base') {
+      state.base = rgb;
+      state.balance = [1, 1, 1];
+      alertStatus('בסיס הפילם נדגם ✓');
+    } else if (state.mode === 'gray') {
+      if (state.type === 'bw') { alertStatus('בשחור-לבן אין צורך באיזון אפור'); setMode(null); return; }
+      const ns = [0, 1, 2].map(c => clamp01(makeBaseCurve(c)(rgb[c])));
+      if (ns.some(n => n <= 0.01 || n >= 0.99)) { alertStatus('הנקודה כהה/בהירה מדי – נסו אזור אחר'); return; }
+      const target = (ns[0] + ns[1] + ns[2]) / 3;
+      state.balance = ns.map(n => Math.min(3, Math.max(0.33, Math.log(target) / Math.log(n))));
+      alertStatus('איזון לבן עודכן ✓');
+    }
+    setMode(null);
+    paint();
+  }
+  // Leaving crop mode without applying needs a redraw of the cropped, processed view.
+  function switchMode(mode) {
+    const wasCrop = state.mode === 'crop';
+    setMode(state.mode === mode ? null : mode);
+    if (wasCrop) refresh();
+  }
+  $('pickBase').addEventListener('click', () => {
+    if (state.type === 'slide') { alertStatus('בשקופית אין שוליים כתומים'); return; }
+    switchMode('base');
+  });
+  $('pickGray').addEventListener('click', () => switchMode('gray'));
+
+  $('autoBtn').addEventListener('click', () => {
+    state.base = null; state.balance = [1, 1, 1];
+    resetSliders(); setMode(null); refresh();
+    alertStatus('חזרה לאיזון אוטומטי');
+  });
+
+  /* ---------- Film type / orientation ---------- */
+  function setType(t) {
+    state.type = t;
+    state.balance = [1, 1, 1];
+    for (const seg of [$('typeSeg'), $('liveType')])
+      for (const x of seg.children) x.classList.toggle('on', x.dataset.type === t);
+  }
+  $('typeSeg').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    setType(b.dataset.type);
+    if (raw && state.mode !== 'crop') paint();
+  });
+  $('liveType').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (b) setType(b.dataset.type);
+  });
+
+  /* ---------- Live camera (FilmBox-style: see the positive while aiming) ---------- */
+  const video = $('video'), liveCanvas = $('liveCanvas');
+  const lctx = liveCanvas.getContext('2d');
+  const work = document.createElement('canvas');
+  const wctx = work.getContext('2d', { willReadFrequently: true });
+  let stream = null, liveRaf = 0, liveFrame = 0, liveHist = null, liveBox = null;
+
+  const cameraAllowed = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) &&
+    !(document.featurePolicy && !document.featurePolicy.allowsFeature('camera'));
+  function useNativeCamera(msg) {
+    $('liveBtn').hidden = true;
+    $('camLabel').classList.add('primary');
+    $('startMsg').textContent = msg || '';
+  }
+  if (!cameraAllowed) useNativeCamera();
+  else $('liveBtn').hidden = false;
+
+  $('liveBtn').addEventListener('click', async () => {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
+      });
+    } catch (err) {
+      stream = null;
+      useNativeCamera('המצלמה החיה לא זמינה כאן – השתמשו ב"צלם עכשיו", הפריים יזוהה אוטומטית');
+      return;
+    }
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    state.balance = [1, 1, 1];
+    resetSliders();
+    liveHist = null; liveFrame = 0;
+    $('live').hidden = false;
+    liveLoop();
+  });
+
+  function liveLoop() {
+    if (!stream) return;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (vw) {
+      const s = Math.min(1, 720 / Math.max(vw, vh));
+      const w = Math.round(vw * s), h = Math.round(vh * s);
+      if (work.width !== w || work.height !== h) {
+        work.width = liveCanvas.width = w;
+        work.height = liveCanvas.height = h;
+      }
+      wctx.drawImage(video, 0, 0, w, h);
+      const frame = wctx.getImageData(0, 0, w, h);
+      if (scan) scanStep();
+      // Re-find the frame a few times a second (locked while scanning); colors are measured inside it only.
+      if (!scan && (liveFrame++ % 10 === 0 || !liveHist)) {
+        liveBox = detectFrame(frame);
+        const region = liveBox
+          ? wctx.getImageData(Math.round(liveBox.x * w), Math.round(liveBox.y * h),
+              Math.max(1, Math.round(liveBox.w * w)), Math.max(1, Math.round(liveBox.h * h)))
+          : frame;
+        liveHist = histograms(region.data);
+        $('liveMsg').textContent = liveBox
+          ? 'הפריים זוהה – החזיקו את כפתור הצילום 3 שניות'
+          : 'כוונו לנגטיב מול אור לבן';
+      }
+      process(frame, frame, buildLuts(liveHist));
+      lctx.putImageData(frame, 0, 0);
+      if (liveBox) {
+        const bx = liveBox.x * w, by = liveBox.y * h, bw = liveBox.w * w, bh = liveBox.h * h;
+        lctx.strokeStyle = '#e8913a';
+        lctx.lineWidth = Math.max(2, w / 240);
+        lctx.strokeRect(bx, by, bw, bh);
+        if (scan) {   // scanner line sweeping down the frame
+          const p = Math.min(1, (performance.now() - scan.t0) / SCAN_MS);
+          lctx.fillStyle = 'rgba(232,145,58,.25)';
+          lctx.fillRect(bx, by, bw, bh * p);
+          lctx.fillStyle = '#e8913a';
+          lctx.fillRect(bx, by + bh * p - 2, bw, 4);
+        }
+      }
+    }
+    if (stream) liveRaf = requestAnimationFrame(liveLoop);
+  }
+
+  /* ---------- Hold-to-scan ---------- */
+  // While the shutter is held, every video frame of the chosen picture is aligned to the first
+  // (hand shake) and averaged. Averaging dozens of frames removes most of the camera noise that
+  // inverting a negative would otherwise blow up.
+  const SCAN_MS = 3000, SCAN_MIN_MS = 800, THUMB = 200;
+  let scan = null;
+
+  function grayThumb(src, sw, sh) {
+    const tw = THUMB, th = Math.max(8, Math.round(THUMB * sh / sw));
+    const t = document.createElement('canvas');
+    t.width = tw; t.height = th;
+    const tctx = t.getContext('2d', { willReadFrequently: true });
+    tctx.drawImage(src, 0, 0, tw, th);
+    const d = tctx.getImageData(0, 0, tw, th).data, g = new Float32Array(tw * th);
+    for (let i = 0; i < g.length; i++) g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+    return { g, tw, th };
+  }
+
+  // Shift (in thumbnail pixels) that best lines `cur` up with `ref`: cur(x+dx, y+dy) ≈ ref(x, y).
+  function alignShift(ref, cur) {
+    const R = 8, { tw, th } = ref;
+    let best = Infinity, bx = 0, by = 0;
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        let sad = 0;
+        for (let y = R; y < th - R; y += 2) {
+          const o = y * tw, oc = (y + dy) * tw + dx;
+          for (let x = R; x < tw - R; x += 2) sad += Math.abs(ref.g[o + x] - cur.g[oc + x]);
+        }
+        if (sad < best) { best = sad; bx = dx; by = dy; }
+      }
+    }
+    return [bx, by];
+  }
+
+  function startScan() {
+    if (!stream || scan || !video.videoWidth) return;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const b = liveBox || { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
+    // Capture a margin around the frame so shake can be compensated; the editor trims it again.
+    const mx = b.w * 0.06, my = b.h * 0.06;
+    const rx = Math.max(0, Math.floor((b.x - mx) * vw)), ry = Math.max(0, Math.floor((b.y - my) * vh));
+    const rw = Math.min(vw - rx, Math.ceil((b.w + 2 * mx) * vw)), rh = Math.min(vh - ry, Math.ceil((b.h + 2 * my) * vh));
+    const cap = document.createElement('canvas');
+    cap.width = rw; cap.height = rh;
+    // Where the picture sits inside the captured area (the margin is film border, so it can't be re-detected later).
+    const crop = liveBox ? {
+      x: (b.x * vw - rx) / rw, y: (b.y * vh - ry) / rh, w: b.w * vw / rw, h: b.h * vh / rh,
+    } : null;
+    scan = {
+      t0: performance.now(), held: true, n: 0, rx, ry, rw, rh, cap, crop,
+      cctx: cap.getContext('2d', { willReadFrequently: true }),
+      acc: new Float32Array(rw * rh * 3), cnt: new Uint16Array(rw * rh), ref: null,
+    };
+    $('shutter').classList.add('scanning');
+    $('liveMsg').textContent = 'סורק… החזיקו יציב';
+  }
+
+  function scanStep() {
+    const s = scan;
+    s.cctx.drawImage(video, s.rx, s.ry, s.rw, s.rh, 0, 0, s.rw, s.rh);
+    const d = s.cctx.getImageData(0, 0, s.rw, s.rh).data;
+    const thumb = grayThumb(s.cap, s.rw, s.rh);
+    let DX = 0, DY = 0;
+    if (!s.ref) s.ref = thumb;
+    else {
+      const [dx, dy] = alignShift(s.ref, thumb);
+      DX = Math.round(dx * s.rw / THUMB); DY = Math.round(dy * s.rw / THUMB);
+    }
+    const { rw, rh, acc, cnt } = s;
+    for (let y = 0; y < rh; y++) {
+      const sy = y + DY;
+      if (sy < 0 || sy >= rh) continue;
+      const x0 = Math.max(0, -DX), x1 = Math.min(rw, rw - DX);
+      for (let x = x0; x < x1; x++) {
+        const i = y * rw + x, p = (sy * rw + x + DX) * 4;
+        acc[i * 3] += d[p]; acc[i * 3 + 1] += d[p + 1]; acc[i * 3 + 2] += d[p + 2];
+        cnt[i]++;
+      }
+    }
+    s.n++;
+    const t = performance.now() - s.t0;
+    $('shutter').style.setProperty('--p', Math.min(1, t / SCAN_MS));
+    if (t >= SCAN_MS || (!s.held && t >= SCAN_MIN_MS)) finishScan();
+  }
+
+  function finishScan() {
+    const s = scan;
+    scan = null;
+    $('shutter').classList.remove('scanning');
+    $('shutter').style.setProperty('--p', 0);
+    const out = s.cctx.createImageData(s.rw, s.rh), d = out.data;
+    for (let i = 0; i < s.cnt.length; i++) {
+      const k = s.cnt[i] || 1;
+      d[i * 4] = s.acc[i * 3] / k; d[i * 4 + 1] = s.acc[i * 3 + 1] / k; d[i * 4 + 2] = s.acc[i * 3 + 2] / k; d[i * 4 + 3] = 255;
+    }
+    s.cctx.putImageData(out, 0, 0);
+    closeLive();
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    openEditor(s.cap, 'film-' + stamp, s.crop);
+    alertStatus(`נסרק ומוזג מ-${s.n} פריימים`);
+  }
+
+  function closeLive() {
+    cancelAnimationFrame(liveRaf);
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    video.srcObject = null;
+    $('live').hidden = true;
+  }
+  $('liveClose').addEventListener('click', closeLive);
+
+  const shutter = $('shutter');
+  shutter.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    try { shutter.setPointerCapture(e.pointerId); } catch (_) { /* optional */ }
+    startScan();
+  });
+  const release = () => { if (scan) scan.held = false; };
+  shutter.addEventListener('pointerup', release);
+  shutter.addEventListener('pointercancel', release);
+  shutter.addEventListener('contextmenu', e => e.preventDefault());
+  // Keyboard: Enter/Space runs a full-length scan.
+  shutter.addEventListener('click', e => { if (e.detail === 0) startScan(); });
+  function reorient(fn) {
+    fn();
+    state.crop = { x: 0, y: 0, w: 1, h: 1 };
+    setMode(null); refresh();
+  }
+  $('rotL').addEventListener('click', () => reorient(() => { state.rot = (state.rot + 270) % 360; }));
+  $('rotR').addEventListener('click', () => reorient(() => { state.rot = (state.rot + 90) % 360; }));
+  $('flipBtn').addEventListener('click', () => reorient(() => { state.flip = !state.flip; }));
+
+  /* ---------- Export ---------- */
+  // Full-quality conversion. A negative only uses a narrow band of 8-bit values, and inverting stretches
+  // that band several times over, so a plain lookup turns sensor noise and JPEG blocks into grain and banding.
+  // Here each pixel is first averaged with its neighbours (giving in-between values), mapped through a
+  // fine 4096-step curve, and dithered on the way back to 8 bits.
+  const HQ = 4096;
+  function processHQ(img) {
+    const W = img.width, H = img.height, s = img.data;
+    const out = new ImageData(W, H), d = out.data;
+    const [lr, lg, lb] = buildLuts(hist, HQ);   // levels were measured on the preview of the same crop
+    const k = (HQ - 1) / (255 * 16);
+    const bw = state.type === 'bw', sat = 1 + state.adj.sat;
+    const row = W * 4;
+    for (let y = 0; y < H; y++) {
+      const up = y > 0 ? -row : 0, dn = y < H - 1 ? row : 0;
+      for (let x = 0; x < W; x++) {
+        const p = y * row + x * 4;
+        const lf = x > 0 ? -4 : 0, rt = x < W - 1 ? 4 : 0;
+        const sm = c => {
+          const q = p + c;
+          return 4 * s[q] + 2 * (s[q + lf] + s[q + rt] + s[q + up] + s[q + dn])
+            + s[q + up + lf] + s[q + up + rt] + s[q + dn + lf] + s[q + dn + rt];   // 3x3 binomial, sum = 16 * value
+        };
+        let r, g, b;
+        if (bw) {
+          const l = 0.299 * sm(0) + 0.587 * sm(1) + 0.114 * sm(2);
+          r = g = b = lr[Math.round(l * k)];
+        } else {
+          r = lr[Math.round(sm(0) * k)]; g = lg[Math.round(sm(1) * k)]; b = lb[Math.round(sm(2) * k)];
+          if (sat !== 1) {
+            const yv = r * 0.299 + g * 0.587 + b * 0.114;
+            r = yv + (r - yv) * sat; g = yv + (g - yv) * sat; b = yv + (b - yv) * sat;
+          }
+        }
+        const n = Math.random() - 0.5;   // dither: hides banding in skies and skin
+        d[p] = r + n; d[p + 1] = g + n; d[p + 2] = b + n; d[p + 3] = 255;
+      }
+    }
+    return out;
+  }
+
+  // Running-sum box blur along one axis (stride 4 = horizontal, 4*W = vertical).
+  function boxBlur(src, dst, W, H, r, horizontal) {
+    const lines = horizontal ? H : W, len = horizontal ? W : H;
+    const step = horizontal ? 4 : W * 4, lineStep = horizontal ? W * 4 : 4;
+    const norm = 1 / (2 * r + 1);
+    for (let L = 0; L < lines; L++) {
+      const o = L * lineStep;
+      for (let c = 0; c < 3; c++) {
+        let acc = 0;
+        for (let i = -r; i <= r; i++) acc += src[o + Math.min(len - 1, Math.max(0, i)) * step + c];
+        for (let i = 0; i < len; i++) {
+          dst[o + i * step + c] = acc * norm;
+          acc += src[o + Math.min(len - 1, i + r + 1) * step + c] - src[o + Math.max(0, i - r) * step + c];
+        }
+      }
+    }
+  }
+  function unsharp(img, radius, amount) {
+    const W = img.width, H = img.height, d = img.data;
+    const r = Math.max(1, Math.round(radius));
+    const tmp = new Uint8ClampedArray(d.length), blur = new Uint8ClampedArray(d.length);
+    boxBlur(d, tmp, W, H, r, true);
+    boxBlur(tmp, blur, W, H, r, false);
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] += amount * (d[i] - blur[i]);
+      d[i + 1] += amount * (d[i + 1] - blur[i + 1]);
+      d[i + 2] += amount * (d[i + 2] - blur[i + 2]);
+    }
+  }
+
+  function renderFull() {
+    // 1. Convert at the photo's own resolution.
+    const native = drawOriented(state.crop, Infinity, EXPORT_PIXELS);
+    const nctx = native.getContext('2d');
+    nctx.putImageData(processHQ(nctx.getImageData(0, 0, native.width, native.height)), 0, 0);
+    // 2. Resize the finished positive to the chosen size.
+    const target = +$('size').value;
+    const w0 = native.width, h0 = native.height;
+    const scale = target ? Math.min(target / Math.max(w0, h0), Math.sqrt(EXPORT_PIXELS / (w0 * h0))) : 1;
+    let c = native;
+    if (Math.abs(scale - 1) > 0.01) {
+      c = document.createElement('canvas');
+      c.width = Math.round(w0 * scale); c.height = Math.round(h0 * scale);
+      const sctx = c.getContext('2d');
+      sctx.imageSmoothingQuality = 'high';
+      sctx.drawImage(native, 0, 0, c.width, c.height);
+    }
+    // 3. Restore crispness lost to smoothing and enlarging.
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    const img = ctx.getImageData(0, 0, c.width, c.height);
+    unsharp(img, Math.max(1, scale * 0.9), scale > 1.2 ? 0.9 : 0.6);
+    ctx.putImageData(img, 0, 0);
+    const type = $('fmt').value;
+    return new Promise((res, rej) =>
+      c.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), type, 0.97));
+  }
+  function fileName() {
+    const ext = $('fmt').value === 'image/png' ? 'png' : 'jpg';
+    return `${state.name}-restored.${ext}`;
+  }
+  async function withBusy(btn, fn) {
+    if (state.mode === 'crop') { alertStatus('סיימו קודם את החיתוך'); return; }
+    btn.disabled = true; alertStatus('מעבד ברזולוציה מלאה…');
+    try { await fn(); }
+    catch (err) { if (err && err.name !== 'AbortError') alertStatus('השמירה נכשלה: ' + err.message); }
+    finally { btn.disabled = false; }
+  }
+
+  // Inside claude.ai the page is sandboxed: saving goes through the viewer's `downloads` capability.
+  let hostDownloads = null;
+  if (window.claude && window.claude.use) {
+    window.claude.use('downloads').then(d => {
+      hostDownloads = d;
+      if (d) $('shareBtn').hidden = true;   // the host's save already opens the phone's share sheet
+    }).catch(() => {});
+  }
+
+  $('downloadBtn').addEventListener('click', () => withBusy($('downloadBtn'), async () => {
+    const blob = await renderFull();
+    if (hostDownloads) {
+      try {
+        await hostDownloads.save({ filename: fileName(), data: blob });
+        alertStatus(`נשמר: ${fileName()}`);
+      } catch (err) {
+        alertStatus(err && err.code === 'declined' ? 'השמירה בוטלה' : 'השמירה נכשלה: ' + (err && err.message));
+      }
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fileName();
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    alertStatus(`נשמר: ${fileName()} (${(blob.size / 1048576).toFixed(1)}MB)`);
+  }));
+
+  // Native share sheet on phones -> "Save Image" puts it straight in the photo gallery.
+  const canShareFiles = !!(navigator.canShare && navigator.canShare({ files: [new File([''], 'x.jpg', { type: 'image/jpeg' })] }));
+  $('shareBtn').hidden = !canShareFiles;
+  $('shareBtn').addEventListener('click', () => withBusy($('shareBtn'), async () => {
+    const blob = await renderFull();
+    const file = new File([blob], fileName(), { type: blob.type });
+    await navigator.share({ files: [file], title: 'תמונה משוחזרת' });
+    alertStatus('');
+  }));
+
+  $('newBtn').addEventListener('click', () => {
+    state.img = null; raw = null; hist = null;
+    setMode(null);
+    $('editor').hidden = true; $('start').hidden = false;
+    alertStatus('');
+  });
+
+  /* ---------- Compare (hold to see the original) ---------- */
+  const cmp = document.createElement('button');
+  cmp.textContent = '👁️ החזיקו להשוואה למקור';
+  cmp.style.fontSize = '13px';
+  document.querySelector('.stage').appendChild(cmp);
+  const showOrig = e => { e.preventDefault(); if (raw && state.mode !== 'crop') vctx.putImageData(raw, 0, 0); };
+  const showNew = () => { if (state.mode !== 'crop') paint(); };
+  cmp.addEventListener('pointerdown', showOrig);
+  cmp.addEventListener('pointerup', showNew);
+  cmp.addEventListener('pointerleave', showNew);
+  cmp.addEventListener('contextmenu', e => e.preventDefault());
+
+  /* ---------- White light panel ---------- */
+  const lb = $('lightbox');
+  $('lightBtn').addEventListener('click', () => {
+    lb.hidden = false;
+    if (lb.requestFullscreen) lb.requestFullscreen().catch(() => {});
+  });
+  lb.addEventListener('click', () => {
+    lb.hidden = true;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  });
+
+  let statusTimer;
+  function alertStatus(msg) {
+    $('status').textContent = msg;
+    clearTimeout(statusTimer);
+    if (msg) statusTimer = setTimeout(() => { $('status').textContent = ''; }, 6000);
+  }
+})();
+</script>
+</body>
+</html>
