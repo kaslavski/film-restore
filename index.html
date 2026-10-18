@@ -222,7 +222,7 @@
       </div>
       <div class="hint" id="startMsg"></div>
       <small>או גררו קובץ תמונה לכאן · הכל מעובד במכשיר שלכם, שום דבר לא נשלח לשרת</small>
-      <small class="ver">גרסה 11</small>
+      <small class="ver">גרסה 12</small>
     </div>
 
     <div class="tips">
@@ -354,7 +354,7 @@
       <li>מצלמים – האפליקציה מוצאת את התמונה, סורקת ומפתחת</li>
     </ol>
     <p class="home-why">למה זום? מקרוב מדי הטלפון לא מצליח למקד. עם זום אפשר לצלם מקצת יותר רחוק – והתמונה עדיין גדולה וחדה.</p>
-    <p class="home-why">גרסה 11</p>
+    <p class="home-why">גרסה 12</p>
   </div>
   <div class="live-bar">
     <div class="slot"><div class="counter"><b id="homeCount">0</b><span>נשמרו</span></div></div>
@@ -686,15 +686,15 @@
     }
   }
 
-  /* ---------- AI enhancement (ESRGAN super-resolution, runs on the phone; nothing is uploaded) ---------- */
-  const AI_LIBS = [
-    'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js',
-    'https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@1.0.0/dist/umd/index.min.js',
-    'https://cdn.jsdelivr.net/npm/upscaler@1.0.0/dist/browser/umd/upscaler.min.js',
-    'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-medium@1.0.0/dist/umd/models/esrgan-medium/src/x2/index.min.js',
-  ];
-  const AI_MAX_SIDE = 1500;     // input cap so a phone finishes in reasonable time; output is twice this
-  let aiCanvas = null, aiBusy = false, aiReady = null, upscaler = null;
+  /* ---------- AI enhancement: Real-ESRGAN, on the phone; nothing is uploaded ---------- */
+  // realesr-general-x4v3 is Real-ESRGAN's model for real-world photos: it was trained on images
+  // damaged the way phone shots of film are (noise, blur, JPEG blocks) and learns to remove that
+  // while enlarging 4x. ONNX Runtime runs it on the graphics chip (WebGPU), or the processor.
+  const ORT_DIR = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
+  const SR_MODEL = 'models/realesr-general-x4v3.onnx';
+  const AI_MAX_SIDE = 1000;     // input cap: x4 output stays within the save limit (~4000px)
+  const AI_TILE = 192, AI_PAD = 10;
+  let aiCanvas = null, aiBusy = false, aiReady = null, srSession = null, srBackend = '';
 
   function loadScript(src) {
     return new Promise((res, rej) => {
@@ -708,12 +708,63 @@
   function loadAI() {
     if (!aiReady) {
       aiReady = (async () => {
-        for (const src of AI_LIBS) await loadScript(src);
-        upscaler = new window.Upscaler({ model: window.ESRGANMedium2x });
+        await loadScript(ORT_DIR + 'ort.webgpu.min.js');
+        const ort = window.ort;
+        ort.env.wasm.wasmPaths = ORT_DIR;
+        ort.env.wasm.numThreads = 1;          // the site can't enable shared memory for threads
+        const backends = navigator.gpu ? ['webgpu', 'wasm'] : ['wasm'];
+        let lastErr = null;
+        for (const ep of backends) {
+          try {
+            srSession = await ort.InferenceSession.create(SR_MODEL, { executionProviders: [ep], graphOptimizationLevel: 'all' });
+            srBackend = ep;
+            return;
+          } catch (err) { lastErr = err; }
+        }
+        throw lastErr || new Error('no AI backend');
       })();
       aiReady.catch(() => { aiReady = null; });
     }
     return aiReady;
+  }
+
+  // 4x enlargement in tiles (keeps memory and graphics limits small); each tile overlaps its
+  // neighbours by AI_PAD pixels so no seams show.
+  async function upscale4(src, progress) {
+    const ort = window.ort;
+    const W = src.width, H = src.height;
+    const sd = src.getContext('2d').getImageData(0, 0, W, H).data;
+    const OW = W * 4, out = new ImageData(OW, H * 4), od = out.data;
+    const nx = Math.ceil(W / AI_TILE), ny = Math.ceil(H / AI_TILE);
+    let done = 0;
+    for (let ty = 0; ty < ny; ty++) {
+      for (let tx = 0; tx < nx; tx++) {
+        const x0 = tx * AI_TILE, y0 = ty * AI_TILE, x1 = Math.min(W, x0 + AI_TILE), y1 = Math.min(H, y0 + AI_TILE);
+        const ax0 = Math.max(0, x0 - AI_PAD), ay0 = Math.max(0, y0 - AI_PAD);
+        const ax1 = Math.min(W, x1 + AI_PAD), ay1 = Math.min(H, y1 + AI_PAD);
+        const tw = ax1 - ax0, th = ay1 - ay0, plane = tw * th;
+        const input = new Float32Array(3 * plane);
+        for (let y = 0; y < th; y++) {
+          for (let x = 0; x < tw; x++) {
+            const i = y * tw + x, p = ((ay0 + y) * W + ax0 + x) * 4;
+            input[i] = sd[p] / 255; input[plane + i] = sd[p + 1] / 255; input[2 * plane + i] = sd[p + 2] / 255;
+          }
+        }
+        const res = await srSession.run({ input: new ort.Tensor('float32', input, [1, 3, th, tw]) });
+        const o = res.output.getData ? await res.output.getData() : res.output.data;
+        const tW = tw * 4, tP = tW * th * 4;
+        for (let y = (y0 - ay0) * 4; y < (y1 - ay0) * 4; y++) {
+          for (let x = (x0 - ax0) * 4; x < (x1 - ax0) * 4; x++) {
+            const gi = y * tW + x, q = ((ay0 * 4 + y) * OW + ax0 * 4 + x) * 4;
+            od[q] = o[gi] * 255; od[q + 1] = o[tP + gi] * 255; od[q + 2] = o[2 * tP + gi] * 255; od[q + 3] = 255;
+          }
+        }
+        if (res.output.dispose) res.output.dispose();
+        progress(++done / (nx * ny));
+        await new Promise(r => setTimeout(r, 0));   // let the progress show
+      }
+    }
+    return out;
   }
 
   async function runAI() {
@@ -730,27 +781,21 @@
     result.classList.add('busy');
     try {
       await loadAI();
-      // The developed picture at the photo's own resolution (capped), with the chosen look.
+      // The developed picture at the photo's own resolution (capped), with the chosen look. Grain
+      // is left for the AI, which removes it far better; only colour speckle is cleaned first.
       const src = drawOriented(state.crop, AI_MAX_SIDE, Infinity);
-      const sctx = src.getContext('2d');
-      sctx.putImageData(processHQ(sctx.getImageData(0, 0, src.width, src.height)), 0, 0);
-      dev.textContent = 'משפר עם AI… 0%';
-      // 128px tiles keep the graphics chip busy with few hand-offs (an HD picture takes ~20s);
-      // a phone whose chip can't build shaders that big falls back to small tiles.
-      const opts = tile => ({
-        patchSize: tile, padding: tile / 16, awaitNextFrame: true, output: 'base64',
-        progress: p => { dev.textContent = `משפר עם AI… ${Math.round(p * 100)}%`; },
-      });
-      let out;
-      try { out = await upscaler.upscale(src, opts(128)); }
-      catch (_) { out = await upscaler.upscale(src, opts(64)); }
-      const img = new Image();
-      img.src = out;
-      await img.decode();
+      const sctx = src.getContext('2d', { willReadFrequently: true });
+      sctx.putImageData(processHQ(sctx.getImageData(0, 0, src.width, src.height), { grain: false }), 0, 0);
+      // Without the graphics chip the processor does the work: same result, just slower.
+      const slow = srBackend === 'wasm' ? ' (במכשיר הזה זה לוקח דקה–שתיים, השאירו את המסך דלוק)' : '';
+      dev.textContent = 'משפר עם AI… 0%' + slow;
+      const t0 = performance.now();
+      const out = await upscale4(src, p => { dev.textContent = `משפר עם AI… ${Math.round(p * 100)}%${slow}`; });
       const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
+      c.width = out.width; c.height = out.height;
+      c.getContext('2d').putImageData(out, 0, 0);
       aiCanvas = c;
+      console.info(`AI ${srBackend}: ${src.width}x${src.height} -> ${c.width}x${c.height} in ${Math.round(performance.now() - t0)}ms`);
       const rc = $('resCanvas'), rctx = rc.getContext('2d');
       rctx.imageSmoothingQuality = 'high';
       rctx.drawImage(c, 0, 0, rc.width, rc.height);
@@ -1856,7 +1901,7 @@
   // Here each pixel is first averaged with its neighbours (giving in-between values), mapped through a
   // fine 4096-step curve, and dithered on the way back to 8 bits.
   const HQ = 4096;
-  function processHQ(img) {
+  function processHQ(img, opts = {}) {
     const W = img.width, H = img.height, s = img.data;
     const out = new ImageData(W, H), d = out.data;
     const [lr, lg, lb] = buildLuts(hist, HQ);   // levels were measured on the preview of the same crop
@@ -1895,7 +1940,7 @@
       const t2 = new Float32Array(N);
       for (const C of [Cr, Cb]) { boxF(C, t2, tmp, W, H, 3); boxF(t2, C, tmp, W, H, 3); }
     }
-    guidedSmooth(Y, tmp, W, H, 2, 30);
+    if (opts.grain !== false) guidedSmooth(Y, tmp, W, H, 2, 30);
 
     for (let i = 0, p = 0; i < N; i++, p += 4) {
       const yv = Y[i], cr = Cr[i] * sat, cb = Cb[i] * sat;
