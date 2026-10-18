@@ -54,6 +54,7 @@
     background: repeating-linear-gradient(90deg, transparent 0 22px, rgba(232,145,58,.04) 22px 26px);
   }
   .drop.over { border-color: var(--accent); }
+  .big-cta { font-size: 18px; min-height: 56px; padding: 12px 28px; border-radius: 12px; }
   .drop .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
   .drop small { color: var(--muted); }
   .tips h2 { font-size: 16px; margin: 0 0 10px; }
@@ -143,9 +144,23 @@
   #shutter:active { transform: scale(.94); }
   #shutter.scanning { background: conic-gradient(#fff calc(var(--p, 0) * 1turn), #e0383e 0); }
 
+  .home-view { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 16px 24px; }
+  .home-guide { width: min(72vw, 300px); aspect-ratio: 2 / 3; border: 2px dashed rgba(255,255,255,.55); border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+  .home-guide span { width: 70%; height: 70%; border-radius: 4px; background: linear-gradient(160deg, rgba(232,145,58,.35), rgba(224,56,62,.25)); }
+  .home-steps { margin: 0; padding-inline-start: 22px; font-size: 15px; line-height: 1.6; color: rgba(255,255,255,.85); max-width: 32ch; }
+  .screen label.ghost { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid rgba(255,255,255,.25); color: #fff; }
+  .shutter-label {
+    display: block; width: 78px; height: 78px; border-radius: 50%; cursor: pointer;
+    background: #e0383e; border: 5px solid #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.5);
+  }
+  .shutter-label:active { transform: scale(.94); }
   .res-view { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 6px 12px; }
   #resCanvas { max-width: 100%; max-height: 100%; opacity: 0; transform: scale(.94); transition: opacity .45s ease, transform .45s ease; }
   #resCanvas.shown { opacity: 1; transform: none; }
+  .res-tools button.ai span { color: #ffd27a; font-weight: 600; }
+  #result.busy .res-tools, #result.busy .filters, #result.busy .res-bar { pointer-events: none; opacity: .35; }
+  #result.reviewing .res-tools, #result.reviewing .filters, #result.reviewing .res-bar,
+  #result.reviewing .res-hint, #result.reviewing #resAdvanced { visibility: hidden; }
   .developing { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; font-size: 15px; }
   .developing::before {
     content: ""; width: 34px; height: 34px; border-radius: 50%;
@@ -183,12 +198,12 @@
   <!-- ===== Start screen ===== -->
   <section id="start" class="start">
     <div class="drop" id="drop">
-      <div style="font-size:18px;font-weight:600">העלו צילום של הנגטיב</div>
+      <div style="font-size:18px;font-weight:600">סריקת נגטיבים</div>
+      <label class="btn primary big-cta" id="camLabel">📷 סריקה באיכות HD
+        <input type="file" accept="image/*" capture="environment" id="camInput" hidden>
+      </label>
       <div class="row">
-        <button class="primary" id="liveBtn" hidden>🎞️ מצלמה חיה</button>
-        <label class="btn" id="camLabel">📷 צלם עכשיו
-          <input type="file" accept="image/*" capture="environment" id="camInput" hidden>
-        </label>
+        <button id="liveBtn" hidden>🎞️ מצלמה חיה</button>
         <label class="btn">🖼️ בחר מהגלריה / מהמחשב
           <input type="file" accept="image/*" id="fileInput" hidden>
         </label>
@@ -311,6 +326,33 @@
   </div>
 </section>
 
+<!-- HD capture screen: one tap opens the phone's camera at full resolution -->
+<section id="home" class="screen" dir="rtl" hidden>
+  <div class="screen-top">
+    <button class="icon" id="homeClose" aria-label="חזרה למסך הפתיחה">✕</button>
+    <button class="ghost" id="homeLive">🎞️ מצלמה חיה</button>
+  </div>
+  <div class="home-view">
+    <div class="home-guide" aria-hidden="true"><span></span></div>
+    <ol class="home-steps">
+      <li>מניחים את הנגטיב על אור לבן</li>
+      <li>מקרבים את הטלפון עד שתמונה אחת ממלאת את המסך</li>
+      <li>מצלמים – האפליקציה מוצאת את התמונה, סורקת ומפתחת</li>
+    </ol>
+  </div>
+  <div class="live-bar">
+    <div class="slot"><div class="counter"><b id="homeCount">0</b><span>נשמרו</span></div></div>
+    <label id="homeShutter" class="shutter-label" aria-label="צלם באיכות HD">
+      <input type="file" accept="image/*" capture="environment" id="homeCam" hidden>
+    </label>
+    <div class="slot end">
+      <label class="ghost hd" aria-label="בחר תמונה מהגלריה">🖼️<span>גלריה</span>
+        <input type="file" accept="image/*" id="homeFile" hidden>
+      </label>
+    </div>
+  </div>
+</section>
+
 <section id="result" class="screen" dir="rtl" hidden>
   <div class="screen-top">
     <button class="icon" id="resClose" aria-label="מחק וחזור לצילום">✕</button>
@@ -322,10 +364,11 @@
   </div>
   <div class="res-hint" id="resHint"></div>
   <div class="res-tools">
+    <button id="resAI" class="ai" hidden>🪄<span>שיפור AI</span></button>
     <button id="resRotate">⟳<span>סובב</span></button>
     <button id="resFlip">⇋<span>מראה</span></button>
     <button id="resCrop">✂️<span>חיתוך</span></button>
-    <button id="resEnhance">✨<span>שיפור</span></button>
+    <button id="resEnhance">✨<span>צבעים</span></button>
   </div>
   <div class="filters" id="filters"></div>
   <div class="res-bar">
@@ -396,7 +439,7 @@
     if (!file || !file.type.startsWith('image/')) { alertStatus('הקובץ אינו תמונה'); return; }
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => openEditor(img, (file.name || 'film').replace(/\.[^.]+$/, '') || 'film');
+    img.onload = () => openEditor(img, (file.name || 'film').replace(/\.[^.]+$/, '') || 'film', null, true);
     img.onerror = () => alertStatus('לא ניתן לפתוח את התמונה');
     img.src = url;
   }
@@ -413,7 +456,7 @@
   }
 
   // Any source (photo file or camera frame): find the film frame, crop to it and show the positive.
-  function openEditor(src, name, knownCrop) {
+  function openEditor(src, name, knownCrop, review) {
     state.img = src;
     state.name = name;
     state.rot = 0; state.flip = false;
@@ -430,13 +473,35 @@
     if (box) {
       state.crop = box;
       refresh();
-      showResult(true);
+      if (review) reviewWholePhoto(box);
+      else showResult(true);
     } else {
       // The picture couldn't be told apart from its surroundings: let the user frame it by hand.
       $('editor').hidden = false;
       setMode('crop');
       refresh();
     }
+  }
+
+  // HD photo: show the whole photo as a positive, outline and scan the picture that was found,
+  // then develop it, the same moment the live camera shows after its scan.
+  function reviewWholePhoto(box) {
+    const full = drawOriented({ x: 0, y: 0, w: 1, h: 1 }, 1100, Infinity);
+    const fctx = full.getContext('2d');
+    const im = fctx.getImageData(0, 0, full.width, full.height);
+    process(im, im, buildLuts());          // colours measured on the picture itself
+    const rc = $('resCanvas');
+    rc.width = full.width; rc.height = full.height;
+    rc.getContext('2d').putImageData(im, 0, 0);
+    $('editor').hidden = true; $('start').hidden = true; $('home').hidden = true; $('live').hidden = true;
+    $('developing').hidden = true;
+    $('result').classList.add('reviewing');
+    $('result').hidden = false;
+    rc.classList.add('shown');
+    playCaptureReview(rc, rc.getContext('2d'), box, () => {
+      $('result').classList.remove('reviewing');
+      showResult(true);
+    });
   }
 
   /* ---------- Result screen (FilmBox-style: developed picture, looks, save) ---------- */
@@ -465,6 +530,8 @@
     drawResult();
   }
   function drawResult() {
+    // Any change to the picture makes an earlier AI pass stale.
+    if (aiCanvas) { aiCanvas = null; $('resAI').classList.remove('active'); }
     const rc = $('resCanvas');
     rc.width = view.width; rc.height = view.height;
     rc.getContext('2d').drawImage(view, 0, 0);
@@ -544,16 +611,23 @@
     }, 900);
   }
 
+  // Back to whichever camera was used last: the HD capture screen (main) or the live view.
+  let captureMode = 'hd';
   function backToCapture() {
     $('result').hidden = true;
-    if (usedLiveCamera && cameraAllowed) openLive();
-    else { $('start').hidden = false; }
+    if (captureMode === 'live' && cameraAllowed) openLive();
+    else showHome();
+  }
+  function showHome() {
+    for (const id of ['start', 'editor', 'result', 'live']) $(id).hidden = true;
+    $('home').hidden = false;
   }
 
   let savedCount = 0;
   function markSaved() {
     savedCount++;
     $('count').textContent = savedCount;
+    $('homeCount').textContent = savedCount;
     const tc = $('thumbCanvas'), rc = $('resCanvas'), tctx = tc.getContext('2d');
     const s = Math.max(tc.width / rc.width, tc.height / rc.height);
     tctx.clearRect(0, 0, tc.width, tc.height);
@@ -591,6 +665,84 @@
     }
   }
 
+  /* ---------- AI enhancement (ESRGAN super-resolution, runs on the phone; nothing is uploaded) ---------- */
+  const AI_LIBS = [
+    'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js',
+    'https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@1.0.0/dist/umd/index.min.js',
+    'https://cdn.jsdelivr.net/npm/upscaler@1.0.0/dist/browser/umd/upscaler.min.js',
+    'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-medium@1.0.0/dist/umd/models/esrgan-medium/src/x2/index.min.js',
+  ];
+  const AI_MAX_SIDE = 1500;     // input cap so a phone finishes in reasonable time; output is twice this
+  let aiCanvas = null, aiBusy = false, aiReady = null, upscaler = null;
+
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src; s.crossOrigin = 'anonymous';
+      s.onload = res;
+      s.onerror = () => rej(new Error('לא ניתן לטעון ' + src));
+      document.head.appendChild(s);
+    });
+  }
+  function loadAI() {
+    if (!aiReady) {
+      aiReady = (async () => {
+        for (const src of AI_LIBS) await loadScript(src);
+        upscaler = new window.Upscaler({ model: window.ESRGANMedium2x });
+      })();
+      aiReady.catch(() => { aiReady = null; });
+    }
+    return aiReady;
+  }
+
+  async function runAI() {
+    if (aiBusy || !raw) return;
+    if (aiCanvas) {                         // second tap: back to the picture without AI
+      drawResult();
+      $('resHint').textContent = frameWarning();
+      return;
+    }
+    aiBusy = true;
+    const dev = $('developing'), result = $('result');
+    dev.textContent = 'טוען מודל AI… (פעם ראשונה בלבד)';
+    dev.hidden = false;
+    result.classList.add('busy');
+    try {
+      await loadAI();
+      // The developed picture at the photo's own resolution (capped), with the chosen look.
+      const src = drawOriented(state.crop, AI_MAX_SIDE, Infinity);
+      const sctx = src.getContext('2d');
+      sctx.putImageData(processHQ(sctx.getImageData(0, 0, src.width, src.height)), 0, 0);
+      dev.textContent = 'משפר עם AI… 0%';
+      const out = await upscaler.upscale(src, {
+        patchSize: 64, padding: 4, awaitNextFrame: true, output: 'base64',
+        progress: p => { dev.textContent = `משפר עם AI… ${Math.round(p * 100)}%`; },
+      });
+      const img = new Image();
+      img.src = out;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      aiCanvas = c;
+      const rc = $('resCanvas'), rctx = rc.getContext('2d');
+      rctx.imageSmoothingQuality = 'high';
+      rctx.drawImage(c, 0, 0, rc.width, rc.height);
+      $('resAI').classList.add('active');
+      $('resHint').textContent = `✓ שופר עם AI – ${c.width}×${c.height} פיקסלים`;
+      invalidateSave();
+    } catch (err) {
+      console.error(err);
+      $('resHint').textContent = 'שיפור AI לא הצליח במכשיר הזה – נסו שוב או בלי AI';
+    } finally {
+      dev.hidden = true;
+      dev.textContent = 'מפתח את התמונה…';
+      result.classList.remove('busy');
+      aiBusy = false;
+    }
+  }
+  $('resAI').addEventListener('click', runAI);
+
   $('resSave').addEventListener('click', saveFromResult);
   $('resClose').addEventListener('click', backToCapture);
   $('lastThumb').addEventListener('click', () => { if (raw) showResult(false); });
@@ -618,8 +770,17 @@
     applyLook();
     buildFilterThumbs();
   });
-  $('camInput').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
-  $('fileInput').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+  for (const id of ['camInput', 'fileInput', 'homeCam', 'homeFile']) {
+    $(id).addEventListener('change', e => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      captureMode = 'hd';
+      loadFile(f);
+    });
+  }
+  $('homeClose').addEventListener('click', () => { $('home').hidden = true; $('start').hidden = false; });
+  $('homeLive').addEventListener('click', () => openLive());
   const drop = $('drop');
   drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
@@ -1113,16 +1274,16 @@
     !(document.featurePolicy && !document.featurePolicy.allowsFeature('camera'));
   function useNativeCamera(msg) {
     $('liveBtn').hidden = true;
-    $('camLabel').classList.add('primary');
+    $('homeLive').hidden = true;
     $('startMsg').textContent = msg || '';
   }
   if (!cameraAllowed) useNativeCamera();
   else $('liveBtn').hidden = false;
 
-  let usedLiveCamera = false, reviewing = false;
+  let reviewing = false;
   async function openLive() {
     // Show the camera screen at once; the stream can take a moment to start.
-    $('start').hidden = true; $('editor').hidden = true; $('result').hidden = true;
+    $('start').hidden = true; $('editor').hidden = true; $('result').hidden = true; $('home').hidden = true;
     $('live').hidden = false;
     lctx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
     $('liveMsg').textContent = 'פותח מצלמה…';
@@ -1138,7 +1299,7 @@
       useNativeCamera('המצלמה החיה לא זמינה כאן – השתמשו ב"צלם עכשיו", הפריים יזוהה אוטומטית');
       return;
     }
-    usedLiveCamera = true;
+    captureMode = 'live';
     // Phones often start the stream well below what the camera can do; ask for its maximum.
     const track = stream.getVideoTracks()[0];
     try {
@@ -1197,10 +1358,10 @@
 
   // After the scan: freeze the view, darken everything but the chosen picture, outline it with a
   // dashed line and sweep a red "scan" over it, then hand over to the result screen.
-  function playCaptureReview(box, done) {
+  function playCaptureReview(canvas, ctx, box, done) {
     if (!box) { done(); return; }
-    reviewing = true;
-    const W = liveCanvas.width, H = liveCanvas.height;
+    const lctx = ctx;
+    const W = canvas.width, H = canvas.height;
     const frozen = lctx.getImageData(0, 0, W, H);
     const bx = box.x * W, by = box.y * H, bw = box.w * W, bh = box.h * H;
     const t0 = performance.now(), DUR = 1300;
@@ -1326,7 +1487,8 @@
     }
     s.cctx.putImageData(out, 0, 0);
     $('liveMsg').textContent = '';
-    playCaptureReview(s.box, () => {
+    reviewing = true;
+    playCaptureReview(liveCanvas, lctx, s.box, () => {
       closeLive();
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
       openEditor(s.cap, 'film-' + stamp, s.crop);
@@ -1341,13 +1503,13 @@
     video.srcObject = null;
     $('live').hidden = true;
   }
-  $('liveClose').addEventListener('click', () => { closeLive(); $('start').hidden = false; });
+  $('liveClose').addEventListener('click', () => { closeLive(); captureMode = 'hd'; showHome(); });
   // Highest quality: the phone's own camera app takes a full-resolution still (12MP and up),
   // and the picture is found, cropped and developed from that.
   $('hdBtn').addEventListener('click', () => {
     closeLive();
-    $('start').hidden = false;
-    $('camInput').click();
+    showHome();
+    $('homeCam').click();
   });
 
   const shutter = $('shutter');
@@ -1470,26 +1632,28 @@
   }
 
   function renderFull() {
+    // An AI-enhanced picture is already developed and detailed: only resize it.
+    if (aiCanvas) return finishRender(aiCanvas, 0.35);
     // 1. Convert at the photo's own resolution.
     const native = drawOriented(state.crop, Infinity, EXPORT_PIXELS);
     const nctx = native.getContext('2d');
     nctx.putImageData(processHQ(nctx.getImageData(0, 0, native.width, native.height)), 0, 0);
+    return finishRender(native);
+  }
+  function finishRender(native, sharpen) {
     // 2. Resize the finished positive to the chosen size.
     const target = +$('size').value;
     const w0 = native.width, h0 = native.height;
     const scale = target ? Math.min(target / Math.max(w0, h0), Math.sqrt(EXPORT_PIXELS / (w0 * h0))) : 1;
-    let c = native;
-    if (Math.abs(scale - 1) > 0.01) {
-      c = document.createElement('canvas');
-      c.width = Math.round(w0 * scale); c.height = Math.round(h0 * scale);
-      const sctx = c.getContext('2d');
-      sctx.imageSmoothingQuality = 'high';
-      sctx.drawImage(native, 0, 0, c.width, c.height);
-    }
+    let c = document.createElement('canvas');
+    c.width = Math.round(w0 * scale); c.height = Math.round(h0 * scale);
+    const sctx = c.getContext('2d');
+    sctx.imageSmoothingQuality = 'high';
+    sctx.drawImage(native, 0, 0, c.width, c.height);
     // 3. Restore crispness lost to smoothing and enlarging.
     const ctx = c.getContext('2d', { willReadFrequently: true });
     const img = ctx.getImageData(0, 0, c.width, c.height);
-    unsharp(img, Math.max(1, scale * 0.9), scale > 1.2 ? 0.9 : 0.6);
+    unsharp(img, Math.max(1, scale * 0.9), sharpen !== undefined ? sharpen : scale > 1.2 ? 0.9 : 0.6);
     ctx.putImageData(img, 0, 0);
     const type = $('fmt').value;
     return new Promise((res, rej) =>
