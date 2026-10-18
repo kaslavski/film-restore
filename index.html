@@ -123,6 +123,15 @@
     position: absolute; bottom: 12px; inset-inline: 16px; text-align: center;
     font-size: 14px; text-shadow: 0 1px 3px #000; pointer-events: none;
   }
+  .zoom-row {
+    position: absolute; bottom: 72px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; padding: 4px; border-radius: 999px; background: rgba(0,0,0,.35);
+  }
+  .zoom-row button {
+    min-width: 44px; height: 44px; min-height: 44px; padding: 0 10px; border-radius: 999px;
+    background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.25); color: #fff; font-size: 13px; font-weight: 600;
+  }
+  .zoom-row button.on { color: #ffd27a; border-color: #ffd27a; }
   .live-bar {
     display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;
     padding: 16px max(20px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
@@ -314,6 +323,7 @@
   </div>
   <div class="live-view">
     <canvas id="liveCanvas"></canvas>
+    <div class="zoom-row" id="zoomRow" hidden></div>
     <div class="live-msg" id="liveMsg">כוונו לנגטיב מול אור לבן</div>
   </div>
   <div class="live-bar">
@@ -952,8 +962,8 @@
   // 2.5mm inside that centre line. Finding the holes therefore places the picture exactly, edge
   // stripes and printing excluded, however dense they look.
   const MM = { pitch: 4.75, picW: 36, picH: 24, holeToPic: 2.5, rowsApart: 29 };
-  function sprocketPicture(film, m, W, filmStrip, center, d) {
-    const horiz = filmStrip.x1 - filmStrip.x0 >= filmStrip.y1 - filmStrip.y0;
+  function sprocketPicture(film, m, W, filmStrip, center, d, forceHoriz) {
+    const horiz = forceHoriz !== undefined ? forceHoriz : filmStrip.x1 - filmStrip.x0 >= filmStrip.y1 - filmStrip.y0;
     // The hole rows are mostly light, so the strip's outline often stops short of them: look a
     // quarter of its width further out on both sides.
     const Hh = m.length / W;
@@ -1000,6 +1010,9 @@
     gaps.sort((a, b) => a - b);
     const pitch = gaps[gaps.length >> 1];
     if (pitch < 4) return null;
+    // Real perforations repeat at one exact spacing; anything irregular is not a hole row.
+    const regular = gaps.filter(g => Math.abs(g - pitch) <= pitch * 0.15).length;
+    if (regular < gaps.length * 0.6) return null;
     const mm = pitch / MM.pitch;
 
     // Picture across the strip: midway between two hole rows, or 2.5mm inside a single one.
@@ -1061,6 +1074,24 @@
       }
     }
     return box;
+  }
+
+  // Last resort when neither holes nor picture density could be read: the strip's outline is the
+  // film's two edges, and a 35mm picture fills the middle 24 of its 35mm, 36mm long. Never the
+  // whole strip with its holes.
+  function geometricPicture(strip, W, H, center) {
+    const horiz = strip.x1 - strip.x0 >= strip.y1 - strip.y0;
+    const S = horiz ? strip.y1 - strip.y0 : strip.x1 - strip.x0;
+    const mm = S / 35;
+    const mid = horiz ? (strip.y0 + strip.y1) / 2 : (strip.x0 + strip.x1) / 2;
+    const a0 = Math.round(mid - 12 * mm), a1 = Math.round(mid + 12 * mm);
+    const lo = horiz ? strip.x0 : strip.y0, hi = horiz ? strip.x1 : strip.y1;
+    const len = Math.min(hi - lo, Math.round(36 * mm));
+    const c = horiz ? center.x : center.y;
+    const p0 = Math.max(lo, Math.min(hi - len, Math.round(c - len / 2)));
+    return horiz
+      ? { x0: p0, x1: p0 + len, y0: a0, y1: a1 }
+      : { x0: a0, x1: a1, y0: p0, y1: p0 + len };
   }
 
   // Shave the film's edge (sprocket band, edge printing) off the picture's two long sides.
@@ -1210,7 +1241,15 @@
       const dark = Math.max(0, base[0] - d[p]) + Math.max(0, base[1] - d[p + 1]) + Math.max(0, base[2] - d[p + 2]);
       exposed[i] = dark > baseSum * 0.12 ? 1 : 0;
     }
-    let pic = sprocketPicture(film, exposed, W, strip, center, d) || findPicture(exposed, W, strip, center);
+    // Holes first, in the strip's likely direction, then the other way, then over the whole photo
+    // (a close-up can fill the frame so the strip's own outline is unreliable).
+    const shapeHoriz = strip.x1 - strip.x0 >= strip.y1 - strip.y0;
+    let pic = null;
+    for (const [area0, hz] of [[strip, shapeHoriz], [strip, !shapeHoriz], [full, shapeHoriz], [full, !shapeHoriz]]) {
+      pic = sprocketPicture(film, exposed, W, area0, center, d, hz);
+      if (pic) break;
+    }
+    pic = pic || findPicture(exposed, W, strip, center) || geometricPicture(strip, W, H, center);
     if (!pic || area(pic) < area(strip) * 0.05) pic = null;
     const box = pic || splitMerged(strip, exposed, W, center);
 
@@ -1470,16 +1509,26 @@
   else $('liveBtn').hidden = false;
 
   let reviewing = false;
-  async function openLive() {
+  // `deviceId` picks a specific lens (when the phone lists its lenses as separate cameras).
+  async function openLive(deviceId) {
     // Show the camera screen at once; the stream can take a moment to start.
     $('start').hidden = true; $('editor').hidden = true; $('result').hidden = true; $('home').hidden = true;
     $('live').hidden = false;
     lctx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
     $('liveMsg').textContent = 'פותח מצלמה…';
+    const lens = typeof deviceId === 'string' ? deviceId : savedLens();
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
+        video: lens
+          ? { deviceId: { exact: lens }, width: { ideal: 3840 }, height: { ideal: 2160 } }
+          : { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
+      }).catch(err => {
+        if (!lens) throw err;           // a remembered lens that's gone: fall back to the default camera
+        saveLens(null);
+        return navigator.mediaDevices.getUserMedia({
+          audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
+        });
       });
     } catch (err) {
       stream = null;
@@ -1505,9 +1554,58 @@
     liveHist = null; liveFrame = 0; reviewing = false;
     $('start').hidden = true; $('editor').hidden = true; $('result').hidden = true;
     $('live').hidden = false;
+    setupZoom(track);
     liveLoop();
   }
-  $('liveBtn').addEventListener('click', openLive);
+  $('liveBtn').addEventListener('click', () => openLive());
+
+  /* ---------- Zoom / lens choice in the live camera ---------- */
+  // Getting the picture big in view is what makes it sharp, and phones can't focus very close:
+  // a zoom lens (2x/3x) fills the screen from a distance the camera can focus at.
+  function savedLens() { try { return localStorage.getItem('film-lens'); } catch (_) { return null; } }
+  function saveLens(id) { try { id ? localStorage.setItem('film-lens', id) : localStorage.removeItem('film-lens'); } catch (_) { /* fine */ } }
+  function savedZoom() { try { return +localStorage.getItem('film-zoom') || 0; } catch (_) { return 0; } }
+
+  async function setupZoom(track) {
+    const row = $('zoomRow');
+    row.textContent = '';
+    row.hidden = true;
+    const options = [];
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    if (caps.zoom && caps.zoom.max >= 1.5) {
+      // The camera zooms by itself (switching to its zoom lens where it has one).
+      const levels = [1, 2, 3, 5].filter(z => z >= caps.zoom.min && z <= caps.zoom.max);
+      const apply = z => track.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
+      const start = savedZoom() || (levels.includes(2) ? 2 : levels[0]);
+      for (const z of levels) options.push({ label: z + '×', on: z === start, go: () => { apply(z); try { localStorage.setItem('film-zoom', z); } catch (_) { /* fine */ } } });
+      apply(start);
+    } else if (navigator.mediaDevices.enumerateDevices) {
+      // Otherwise many phones list each back lens as its own camera.
+      const cams = (await navigator.mediaDevices.enumerateDevices()).filter(dv => dv.kind === 'videoinput' && dv.label);
+      const tele = cams.find(dv => /tele|טלפוטו/i.test(dv.label));
+      const ultra = cams.find(dv => /ultra|רחבה במיוחד/i.test(dv.label));
+      const main = cams.find(dv => /back|אחורית|rear|environment/i.test(dv.label) && dv !== tele && dv !== ultra
+        && !/dual|triple|כפולה|משולשת/i.test(dv.label));
+      const current = track.getSettings ? track.getSettings().deviceId : null;
+      for (const [cam, label] of [[main, 'רגיל'], [tele, 'זום'], [ultra, 'מאקרו']]) {
+        if (!cam) continue;
+        options.push({ label, on: cam.deviceId === current, go: () => { saveLens(cam.deviceId); closeLive(); openLive(cam.deviceId); } });
+      }
+      if (options.length < 2) options.length = 0;
+    }
+    if (!options.length) return;
+    for (const o of options) {
+      const b = document.createElement('button');
+      b.textContent = o.label;
+      b.classList.toggle('on', o.on);
+      b.addEventListener('click', () => {
+        for (const x of row.children) x.classList.toggle('on', x === b);
+        o.go();
+      });
+      row.appendChild(b);
+    }
+    row.hidden = false;
+  }
 
   function liveLoop() {
     if (!stream) return;
