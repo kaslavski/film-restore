@@ -876,22 +876,30 @@
   }
 
   // Shrinks the region to the rows/columns that are mostly `mask`, alternating axes so each pass sharpens the other.
-  function maskBox(m, W, r, frac, center) {
+  // Starting with columns finds a strip that runs up-down; starting with rows finds one that runs
+  // left-right (a thin horizontal strip fills too little of any column to be seen first).
+  function maskBox(m, W, r, frac, center, rowsFirst) {
     let { x0, y0, x1, y1 } = r;
-    for (let pass = 0; pass < 3; pass++) {
-      const f = pass === 0 ? frac * 0.6 : frac;
+    const doCols = f => {
       const cols = pickRun(x0, x1, x => {
         let s = 0; for (let y = y0; y < y1; y++) s += m[y * W + x];
         return s > f * (y1 - y0);
       }, center && center.x);
-      if (!cols) return null;
-      [x0, x1] = cols;
+      if (cols) [x0, x1] = cols;
+      return !!cols;
+    };
+    const doRows = f => {
       const rows = pickRun(y0, y1, y => {
         let s = 0; const o = y * W; for (let x = x0; x < x1; x++) s += m[o + x];
         return s > f * (x1 - x0);
       }, center && center.y);
-      if (!rows) return null;
-      [y0, y1] = rows;
+      if (rows) [y0, y1] = rows;
+      return !!rows;
+    };
+    for (let pass = 0; pass < 3; pass++) {
+      const f = pass === 0 ? frac * 0.6 : frac;
+      const ok = rowsFirst ? doRows(f) && doCols(f) : doCols(f) && doRows(f);
+      if (!ok) return null;
     }
     return { x0, y0, x1, y1 };
   }
@@ -932,6 +940,102 @@
       ? { x0: b0 + run[0], x1: b0 + run[1], y0: box.y0, y1: box.y1 }
       : { x0: box.x0, x1: box.x1, y0: b0 + run[0], y1: b0 + run[1] };
     return trimAcross(splitMerged(box, m, W, center), m, W, horiz);
+  }
+
+  // 35mm film is built to fixed measurements, so its sprocket holes are a ruler: holes repeat every
+  // 4.75mm, each row of holes is centred 3mm in from the film's edge, and the 36x24mm picture starts
+  // 2.5mm inside that centre line. Finding the holes therefore places the picture exactly, edge
+  // stripes and printing excluded, however dense they look.
+  const MM = { pitch: 4.75, picW: 36, picH: 24, holeToPic: 2.5, rowsApart: 29 };
+  function sprocketPicture(film, m, W, filmStrip, center) {
+    const horiz = filmStrip.x1 - filmStrip.x0 >= filmStrip.y1 - filmStrip.y0;
+    // The hole rows are mostly light, so the strip's outline often stops short of them: look a
+    // quarter of its width further out on both sides.
+    const Hh = m.length / W;
+    const ext = Math.round((horiz ? filmStrip.y1 - filmStrip.y0 : filmStrip.x1 - filmStrip.x0) * 0.25);
+    const strip = horiz
+      ? { x0: filmStrip.x0, x1: filmStrip.x1, y0: Math.max(0, filmStrip.y0 - ext), y1: Math.min(Hh, filmStrip.y1 + ext) }
+      : { x0: Math.max(0, filmStrip.x0 - ext), x1: Math.min(W, filmStrip.x1 + ext), y0: filmStrip.y0, y1: filmStrip.y1 };
+    const n = horiz ? strip.y1 - strip.y0 : strip.x1 - strip.x0;      // lines across the strip
+    const len = horiz ? strip.x1 - strip.x0 : strip.y1 - strip.y0;    // length of each line
+    const at = (k, i) => horiz ? (strip.y0 + k) * W + strip.x0 + i : (strip.y0 + i) * W + strip.x0 + k;
+    // Share of backlight (holes) on each line across the strip.
+    const light = new Float32Array(n);
+    for (let k = 0; k < n; k++) {
+      let s = 0;
+      for (let i = 0; i < len; i++) s += film[at(k, i)] ? 0 : 1;
+      light[k] = s / len;
+    }
+    // Hole rows: lines that are partly backlight (holes alternating with film). Lines that are
+    // nearly all light lie beyond the film's edge.
+    const bands = [];
+    for (let k = 0; k < n; ) {
+      if (light[k] >= 0.25 && light[k] <= 0.85) {
+        let e = k;
+        while (e + 1 < n && light[e + 1] >= 0.25 && light[e + 1] <= 0.85) e++;
+        if (e - k >= 1) bands.push([k, e + 1]);
+        k = e + 1;
+      } else k++;
+    }
+    if (!bands.length) return null;
+
+    // Hole spacing along the line through the middle of the widest hole row = 4.75mm.
+    const main = bands.reduce((a, b) => (b[1] - b[0] > a[1] - a[0] ? b : a));
+    const km = (main[0] + main[1]) >> 1;
+    const starts = [];
+    let prev = true;
+    for (let i = 0; i < len; i++) {
+      const isFilm = !!film[at(km, i)];
+      if (!isFilm && prev) starts.push(i);
+      prev = isFilm;
+    }
+    const gaps = [];
+    for (let i = 1; i < starts.length; i++) gaps.push(starts[i] - starts[i - 1]);
+    if (gaps.length < 3) return null;
+    gaps.sort((a, b) => a - b);
+    const pitch = gaps[gaps.length >> 1];
+    if (pitch < 4) return null;
+    const mm = pitch / MM.pitch;
+
+    // Picture across the strip: midway between two hole rows, or 2.5mm inside a single one.
+    const mid = b => (b[0] + b[1]) / 2;
+    const c0 = horiz ? center.y - strip.y0 : center.x - strip.x0;
+    let a0, a1;
+    const first = bands[0], last = bands[bands.length - 1];
+    const apart = (mid(last) - mid(first)) / mm;
+    if (bands.length >= 2 && Math.abs(apart - MM.rowsApart) < MM.rowsApart * 0.2) {
+      const cm = (mid(first) + mid(last)) / 2;
+      a0 = cm - MM.picH / 2 * mm; a1 = cm + MM.picH / 2 * mm;
+    } else {
+      const c = mid(main);
+      if (c0 >= c) { a0 = c + MM.holeToPic * mm; a1 = a0 + MM.picH * mm; }
+      else { a1 = c - MM.holeToPic * mm; a0 = a1 - MM.picH * mm; }
+    }
+    // The strip's outline can stop at the hole rows (they're mostly light), so the picture is
+    // only kept inside the photo, not inside that outline.
+    const H = m.length / W;
+    const lim = horiz ? H : W, off = horiz ? strip.y0 : strip.x0;
+    a0 = Math.max(0, Math.round(off + a0)); a1 = Math.min(lim, Math.round(off + a1));
+    if (a1 - a0 < MM.picH * mm * 0.6) return null;
+    let box = horiz
+      ? { x0: strip.x0, x1: strip.x1, y0: a0, y1: a1 }
+      : { x0: a0, x1: a1, y0: strip.y0, y1: strip.y1 };
+
+    // Along the strip: the gaps between pictures, then exactly 36mm around the chosen one.
+    const seg = splitMerged(box, m, W, center);
+    const want = MM.picW * mm;
+    const s0 = horiz ? seg.x0 : seg.y0, s1 = horiz ? seg.x1 : seg.y1;
+    const b0 = horiz ? box.x0 : box.y0, b1 = horiz ? box.x1 : box.y1;
+    const segLen = s1 - s0;
+    const mid1 = Math.abs(segLen - want) < want * 0.15
+      ? (s0 + s1) / 2
+      : (horiz ? center.x : center.y);
+    let p0 = Math.round(mid1 - want / 2), p1 = Math.round(mid1 + want / 2);
+    if (p0 < b0) { p1 += b0 - p0; p0 = b0; }
+    if (p1 > b1) { p0 -= p1 - b1; p1 = b1; }
+    p0 = Math.max(b0, p0);
+    box = horiz ? { x0: p0, x1: p1, y0: box.y0, y1: box.y1 } : { x0: box.x0, x1: box.x1, y0: p0, y1: p1 };
+    return box;
   }
 
   // Shave the film's edge (sprocket band, edge printing) off the picture's two long sides.
@@ -1047,7 +1151,10 @@
     for (let i = 0; i < N; i++) film[i] = mn[i] < light * 0.8 ? 1 : 0;
     const center = { x: W / 2, y: H / 2 };
     // The strip being aimed at (not, say, the dark edge of a laptop screen elsewhere in view).
-    const strip = maskBox(film, W, { x0: 0, y0: 0, x1: W, y1: H }, 0.5, center);
+    const full = { x0: 0, y0: 0, x1: W, y1: H };
+    const byCols = maskBox(film, W, full, 0.5, center), byRows = maskBox(film, W, full, 0.5, center, true);
+    const strip = !byCols ? byRows : !byRows ? byCols
+      : ((byRows.x1 - byRows.x0) * (byRows.y1 - byRows.y0) > (byCols.x1 - byCols.x0) * (byCols.y1 - byCols.y0) ? byRows : byCols);
     if (!strip) return null;
     const area = b => (b.x1 - b.x0) * (b.y1 - b.y0);
     if (area(strip) < N * 0.02) return null;
@@ -1078,7 +1185,7 @@
       const dark = Math.max(0, base[0] - d[p]) + Math.max(0, base[1] - d[p + 1]) + Math.max(0, base[2] - d[p + 2]);
       exposed[i] = dark > baseSum * 0.12 ? 1 : 0;
     }
-    let pic = findPicture(exposed, W, strip, center);
+    let pic = sprocketPicture(film, exposed, W, strip, center) || findPicture(exposed, W, strip, center);
     if (!pic || area(pic) < area(strip) * 0.05) pic = null;
     const box = pic || splitMerged(strip, exposed, W, center);
 
