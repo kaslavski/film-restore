@@ -128,6 +128,8 @@
   }
   .slot { display: flex; align-items: center; gap: 10px; }
   .slot.end { justify-content: flex-end; }
+  .screen .hd { flex-direction: column; gap: 0; min-height: 50px; padding: 4px 10px; font-size: 18px; line-height: 1.1; border-radius: 10px; }
+  .screen .hd span { font-size: 11px; font-weight: 600; }
   .counter { display: flex; flex-direction: column; align-items: center; line-height: 1.1; font-variant-numeric: tabular-nums; }
   .counter b { font-size: 22px; }
   .counter span { font-size: 11px; color: rgba(255,255,255,.6); }
@@ -201,7 +203,8 @@
         <li><b>מקור אור לבן ואחיד</b> – קופסת אור, או מסך של טאבלט/מחשב נייד במצב "מסך לבן" (כפתור למטה).</li>
         <li><b>חדר חשוך</b> – כבו אורות כדי שלא יהיו השתקפויות על הפילם.</li>
         <li><b>הטלפון מקביל לפילם</b> – בדיוק מעליו, בלי זווית. בלי פלאש.</li>
-        <li><b>מלאו את המסגרת</b> – קרוב ככל שהפוקוס מאפשר, ולחצו על המסך כדי למקד.</li>
+        <li><b>מלאו את המסך בתמונה אחת</b> – קרוב ככל שהפוקוס מאפשר. ככל שהתמונה גדולה יותר במסך, היא יוצאת חדה יותר.</li>
+        <li><b>מצלמים על מסך מחשב?</b> הניחו דף נייר לבן על המסך ואת הפילם מעליו – אחרת רואים בתמונה את הפיקסלים של המסך.</li>
         <li><b>השאירו פס קטן מהשוליים הכתומים</b> של הפילם – תוכלו לדגום אותו לאיזון צבעים מדויק.</li>
       </ol>
       <button class="btn" id="lightBtn">💡 הפוך את המסך הזה לאור לבן</button>
@@ -297,7 +300,10 @@
     <div class="live-msg" id="liveMsg">כוונו לנגטיב מול אור לבן</div>
   </div>
   <div class="live-bar">
-    <div class="slot"><div class="counter"><b id="count">0</b><span>נשמרו</span></div></div>
+    <div class="slot">
+      <div class="counter"><b id="count">0</b><span>נשמרו</span></div>
+      <button class="ghost hd" id="hdBtn" aria-label="צילום באיכות מרבית במצלמה של הטלפון">📷<span>HD</span></button>
+    </div>
     <button id="shutter" aria-label="החזיקו לסריקה"></button>
     <div class="slot end">
       <button id="lastThumb" aria-label="התמונה האחרונה שנשמרה" hidden><canvas id="thumbCanvas" width="108" height="108"></canvas></button>
@@ -680,8 +686,8 @@
   // Stretches of indices in [a, b) passing `test`, bridging tiny gaps (a dark spot inside a picture).
   // Returns the longest one, or with `center` the real stretch nearest to it: when several frames of a
   // strip are in view, that is the frame being aimed at.
-  function pickRun(a, b, test, center) {
-    const gap = Math.max(1, Math.round((b - a) * 0.01));
+  function pickRun(a, b, test, center, gapFrac = 0.01) {
+    const gap = Math.max(1, Math.round((b - a) * gapFrac));
     const runs = [];
     let start = -1, lastTrue = -1;
     for (let i = a; i < b; i++) {
@@ -721,6 +727,97 @@
     return { x0, y0, x1, y1 };
   }
 
+  // Share of `m` pixels in each column (byColumn) or row of `box`.
+  function maskProfile(m, W, box, byColumn) {
+    const n = byColumn ? box.x1 - box.x0 : box.y1 - box.y0;
+    const span = byColumn ? box.y1 - box.y0 : box.x1 - box.x0;
+    const p = new Float32Array(n);
+    for (let k = 0; k < n; k++) {
+      let s = 0;
+      for (let j = 0; j < span; j++) {
+        s += byColumn ? m[(box.y0 + j) * W + box.x0 + k] : m[(box.y0 + k) * W + box.x0 + j];
+      }
+      p[k] = s / span;
+    }
+    return p;
+  }
+
+  // The picture inside a strip. Across the strip the structure is simple (sprocket band, picture,
+  // sprocket band), so that axis is found first; along the strip, pictures sit in a row and are
+  // separated by thin gaps, which splitMerged cuts at.
+  function findPicture(m, W, strip, center) {
+    const horiz = strip.x1 - strip.x0 >= strip.y1 - strip.y0;   // strip runs left-right
+    const across = maskProfile(m, W, strip, !horiz);
+    const a0 = horiz ? strip.y0 : strip.x0;
+    const band = pickRun(0, across.length, k => across[k] > 0.45, (horiz ? center.y : center.x) - a0, 0.03);
+    if (!band) return null;
+    let box = horiz
+      ? { x0: strip.x0, x1: strip.x1, y0: a0 + band[0], y1: a0 + band[1] }
+      : { x0: a0 + band[0], x1: a0 + band[1], y0: strip.y0, y1: strip.y1 };
+    // Along the strip: drop the ends where there is no picture at all.
+    const along = maskProfile(m, W, box, horiz);
+    const b0 = horiz ? box.x0 : box.y0;
+    const run = pickRun(0, along.length, k => along[k] > 0.25, undefined, 0.03);
+    if (!run) return null;
+    box = horiz
+      ? { x0: b0 + run[0], x1: b0 + run[1], y0: box.y0, y1: box.y1 }
+      : { x0: box.x0, x1: box.x1, y0: b0 + run[0], y1: b0 + run[1] };
+    return splitMerged(box, m, W, center);
+  }
+
+  // A 35mm picture is 3:2 (36mm along the strip, 24mm across). Several pictures in a row are told
+  // apart by the gaps between them: deep, sharp valleys in how much picture each line across the strip
+  // holds. Bright patches inside a picture only make shallow dips, so the pair of valleys kept is the
+  // one that is deep on both sides, spaced like a 3:2 picture, and around the centre of the view.
+  function splitMerged(box, m, W, center) {
+    const bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+    const along = bw >= bh;                       // strip runs left-right?
+    const L = along ? bw : bh, S = along ? bh : bw;
+    if (L < S * 1.15) return box;                 // a single picture, or a close-up of part of one
+    const raw = maskProfile(m, W, box, along);
+    const prof = raw.map((v, k) => (raw[Math.max(0, k - 1)] + v + raw[Math.min(L - 1, k + 1)]) / 3);
+
+    const cand = [{ k: 0, depth: 0.3 }, { k: L, depth: 0.3 }];   // the box ends, as weak boundaries
+    const reach = Math.max(2, Math.round(S * 0.3)), near = Math.max(1, Math.round(S * 0.08));
+    for (let k = 1; k < L - 1; k++) {
+      if (prof[k] > 0.45 || prof[k] > prof[k - 1] || prof[k] > prof[k + 1]) continue;
+      // How full the strip is just beside this line, on both sides.
+      let lsum = 0, ln = 0, rsum = 0, rn = 0;
+      for (let j = k - reach; j <= k - near; j++) if (j >= 0) { lsum += prof[j]; ln++; }
+      for (let j = k + near; j <= k + reach; j++) if (j < L) { rsum += prof[j]; rn++; }
+      const level = Math.min(ln ? lsum / ln : 1, rn ? rsum / rn : 1);
+      const depth = level - prof[k];
+      if (depth < 0.4) continue;
+      const last = cand[cand.length - 1];
+      if (last.k > 0 && k - last.k < near * 2) { if (depth > last.depth) { last.k = k; last.depth = depth; } }
+      else cand.push({ k, depth });
+    }
+    cand.sort((a, b) => a.k - b.k);
+
+    const c = along ? center.x - box.x0 : center.y - box.y0;
+    const want = S * 1.5;
+    let seg = null, bestScore = -Infinity;
+    for (let i = 0; i < cand.length; i++) {
+      for (let j = i + 1; j < cand.length; j++) {
+        const a = cand[i].k, b = cand[j].k, len = b - a;
+        if (len < S * 1.15 || len > S * 1.8) continue;
+        const off = c >= a && c <= b ? 0 : Math.min(Math.abs(c - a), Math.abs(c - b)) / S;
+        const score = cand[i].depth + cand[j].depth - Math.abs(len - want) / S - off * 2;
+        if (score > bestScore) { bestScore = score; seg = [a, b]; }
+      }
+    }
+    if (!seg) {
+      if (L <= S * 1.8) return box;
+      // No clear gaps at all: one 3:2 picture around the centre.
+      const len = Math.round(want);
+      const start = Math.max(0, Math.min(L - len, Math.round(c - len / 2)));
+      seg = [start, start + len];
+    }
+    return along
+      ? { x0: box.x0 + seg[0], x1: box.x0 + seg[1], y0: box.y0, y1: box.y1 }
+      : { x0: box.x0, x1: box.x1, y0: box.y0 + seg[0], y1: box.y0 + seg[1] };
+  }
+
   // Photo of film on a light box -> normalized crop of the exposed picture, or null if it can't be told apart.
   function detectFrame(img) {
     const W = img.width, H = img.height, d = img.data, N = W * H;
@@ -736,20 +833,42 @@
     if (light < 120) return null;
     const film = new Uint8Array(N);
     for (let i = 0; i < N; i++) film[i] = mn[i] < light * 0.8 ? 1 : 0;
-    const strip = maskBox(film, W, { x0: 0, y0: 0, x1: W, y1: H }, 0.5);
+    const center = { x: W / 2, y: H / 2 };
+    // The strip being aimed at (not, say, the dark edge of a laptop screen elsewhere in view).
+    const strip = maskBox(film, W, { x0: 0, y0: 0, x1: W, y1: H }, 0.5, center);
     if (!strip) return null;
     const area = b => (b.x1 - b.x0) * (b.y1 - b.y0);
-    if (area(strip) < N * 0.05) return null;
+    if (area(strip) < N * 0.02) return null;
 
-    // Inside the strip, the unexposed base/border is the brightest film; the picture is denser.
+    // Clear film base (sprocket band, gaps between pictures): the brightest film in the strip.
+    // Its colour is averaged so the picture can be told apart by being denser in any channel.
     const hLum = new Uint32Array(256);
     for (let y = strip.y0; y < strip.y1; y++)
       for (let x = strip.x0; x < strip.x1; x++) { const i = y * W + x; if (film[i]) hLum[lum[i]]++; }
-    const baseLum = percentile(hLum, 0.95);
+    const baseLum = percentile(hLum, 0.9);
+    const base = [0, 0, 0];
+    let nb = 0;
+    for (let y = strip.y0; y < strip.y1; y++) {
+      for (let x = strip.x0; x < strip.x1; x++) {
+        const i = y * W + x;
+        if (film[i] && Math.abs(lum[i] - baseLum) <= baseLum * 0.08) {
+          base[0] += d[i * 4]; base[1] += d[i * 4 + 1]; base[2] += d[i * 4 + 2]; nb++;
+        }
+      }
+    }
+    if (nb) for (let c = 0; c < 3; c++) base[c] /= nb;
+    else base[0] = base[1] = base[2] = baseLum;
+    const baseSum = base[0] + base[1] + base[2] || 1;
     const exposed = new Uint8Array(N);
-    for (let i = 0; i < N; i++) exposed[i] = film[i] && lum[i] < baseLum * 0.85 ? 1 : 0;
-    const pic = maskBox(exposed, W, strip, 0.5, { x: W / 2, y: H / 2 });
-    const box = pic && area(pic) >= N * 0.03 ? pic : strip;
+    for (let i = 0; i < N; i++) {
+      if (!film[i]) continue;
+      const p = i * 4;
+      const dark = Math.max(0, base[0] - d[p]) + Math.max(0, base[1] - d[p + 1]) + Math.max(0, base[2] - d[p + 2]);
+      exposed[i] = dark > baseSum * 0.12 ? 1 : 0;
+    }
+    let pic = findPicture(exposed, W, strip, center);
+    if (!pic || area(pic) < area(strip) * 0.05) pic = null;
+    const box = pic || splitMerged(strip, exposed, W, center);
 
     // Trim a hair inside so no border or light leaks into the picture.
     const ix = (box.x1 - box.x0) * 0.015, iy = (box.y1 - box.y0) * 0.015;
@@ -1020,6 +1139,14 @@
       return;
     }
     usedLiveCamera = true;
+    // Phones often start the stream well below what the camera can do; ask for its maximum.
+    const track = stream.getVideoTracks()[0];
+    try {
+      const caps = track.getCapabilities ? track.getCapabilities() : null;
+      if (caps && caps.width && caps.height) {
+        await track.applyConstraints({ width: { ideal: caps.width.max }, height: { ideal: caps.height.max } });
+      }
+    } catch (_) { /* keep whatever resolution the camera gave */ }
     video.srcObject = stream;
     await video.play().catch(() => {});
     state.balance = [1, 1, 1];
@@ -1054,9 +1181,12 @@
               Math.max(1, Math.round(liveBox.w * w)), Math.max(1, Math.round(liveBox.h * h)))
           : frame;
         liveHist = histograms(region.data);
-        $('liveMsg').textContent = liveBox
-          ? 'החזיקו את כפתור הצילום 3 שניות'
-          : 'כוונו לנגטיב מול אור לבן';
+        // A picture that fills little of the camera can't come out sharp, however it's enlarged.
+        const tooFar = liveBox && liveBox.w * liveBox.h < 0.18;
+        $('liveMsg').textContent = !liveBox ? 'כוונו לנגטיב מול אור לבן'
+          : tooFar ? '⚠️ קרבו את הטלפון – התמונה צריכה למלא את רוב המסך'
+          : 'החזיקו את כפתור הצילום 3 שניות';
+        $('liveMsg').style.color = tooFar ? 'var(--accent)' : '';
       }
       // Clean viewfinder like FilmBox: the whole view as a positive, no box while aiming.
       process(frame, frame, buildLuts(liveHist));
@@ -1212,6 +1342,13 @@
     $('live').hidden = true;
   }
   $('liveClose').addEventListener('click', () => { closeLive(); $('start').hidden = false; });
+  // Highest quality: the phone's own camera app takes a full-resolution still (12MP and up),
+  // and the picture is found, cropped and developed from that.
+  $('hdBtn').addEventListener('click', () => {
+    closeLive();
+    $('start').hidden = false;
+    $('camInput').click();
+  });
 
   const shutter = $('shutter');
   shutter.addEventListener('pointerdown', e => {
