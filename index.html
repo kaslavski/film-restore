@@ -222,7 +222,7 @@
       </div>
       <div class="hint" id="startMsg"></div>
       <small>או גררו קובץ תמונה לכאן · הכל מעובד במכשיר שלכם, שום דבר לא נשלח לשרת</small>
-      <small class="ver">גרסה 12</small>
+      <small class="ver">גרסה 13</small>
     </div>
 
     <div class="tips">
@@ -354,7 +354,7 @@
       <li>מצלמים – האפליקציה מוצאת את התמונה, סורקת ומפתחת</li>
     </ol>
     <p class="home-why">למה זום? מקרוב מדי הטלפון לא מצליח למקד. עם זום אפשר לצלם מקצת יותר רחוק – והתמונה עדיין גדולה וחדה.</p>
-    <p class="home-why">גרסה 12</p>
+    <p class="home-why">גרסה 13</p>
   </div>
   <div class="live-bar">
     <div class="slot"><div class="counter"><b id="homeCount">0</b><span>נשמרו</span></div></div>
@@ -1124,6 +1124,37 @@
     return box;
   }
 
+  // Final safety pass, whichever method found the picture: while an edge of the crop still shows
+  // backlight (a sprocket hole or the light beyond the film) or is almost all bare film (the frame
+  // border), move that edge inward. A picture never lets backlight through, and its own darkest
+  // shadows are still denser than bare film, so real picture is left alone. At most 15% per side.
+  function cleanEdges(box, film, m, W) {
+    let { x0, y0, x1, y1 } = box;
+    const maxX = Math.round((x1 - x0) * 0.15), maxY = Math.round((y1 - y0) * 0.15);
+    const lineStats = (horizLine, k, a, b) => {
+      let light = 0, bare = 0;
+      for (let t = a; t < b; t++) {
+        const i = horizLine ? k * W + t : t * W + k;
+        if (!film[i]) light++; else if (!m[i]) bare++;
+      }
+      const n = Math.max(1, b - a);
+      return { light: light / n, bare: bare / n };
+    };
+    // Backlight is unmistakable and may be trimmed up to 15%; "bare film" can be confused with a
+    // picture's own deepest shadows, so it only takes a thin border line (4%).
+    const bareX = Math.round((x1 - x0) * 0.04), bareY = Math.round((y1 - y0) * 0.04);
+    const dirty = (s, used, bareMax) => s.light > 0.03 || (s.bare > 0.97 && used < bareMax);
+    let tl = 0, tr = 0, tt = 0, tb = 0, moved = true;
+    while (moved) {
+      moved = false;
+      if (tt < maxY && y1 - y0 > 4 && dirty(lineStats(true, y0, x0, x1), tt, bareY)) { y0++; tt++; moved = true; }
+      if (tb < maxY && y1 - y0 > 4 && dirty(lineStats(true, y1 - 1, x0, x1), tb, bareY)) { y1--; tb++; moved = true; }
+      if (tl < maxX && x1 - x0 > 4 && dirty(lineStats(false, x0, y0, y1), tl, bareX)) { x0++; tl++; moved = true; }
+      if (tr < maxX && x1 - x0 > 4 && dirty(lineStats(false, x1 - 1, y0, y1), tr, bareX)) { x1--; tr++; moved = true; }
+    }
+    return { ...box, x0, y0, x1, y1 };
+  }
+
   // Last resort when neither holes nor picture density could be read: the strip's outline is the
   // film's two edges, and a 35mm picture fills the middle 24 of its 35mm, 36mm long. Never the
   // whole strip with its holes.
@@ -1299,7 +1330,7 @@
     }
     pic = pic || findPicture(exposed, W, strip, center) || geometricPicture(strip, W, H, center);
     if (!pic || area(pic) < area(strip) * 0.05) pic = null;
-    const box = pic || splitMerged(strip, exposed, W, center);
+    const box = cleanEdges(pic || splitMerged(strip, exposed, W, center), film, exposed, W);
 
     // Trim a hair inside so no border or light leaks into the picture.
     const ix = (box.x1 - box.x0) * 0.025, iy = (box.y1 - box.y0) * 0.025;
