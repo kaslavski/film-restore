@@ -474,7 +474,9 @@
       box = detectFrame(probe.getContext('2d').getImageData(0, 0, probe.width, probe.height));
     }
     if (box) {
-      state.crop = box;
+      state.crop = { x: box.x, y: box.y, w: box.w, h: box.h };
+      // The bare film between pictures gives the exact orange mask to remove.
+      if (box.base && state.type === 'color') state.base = box.base;
       refresh();
       if (review) reviewWholePhoto(box);
       else showResult(true);
@@ -537,7 +539,10 @@
     if (aiCanvas) { aiCanvas = null; $('resAI').classList.remove('active'); }
     const rc = $('resCanvas');
     rc.width = view.width; rc.height = view.height;
-    rc.getContext('2d').drawImage(view, 0, 0);
+    // The result screen shows the full-quality development (noise reduction included), not the
+    // quick preview used while dragging sliders.
+    if (raw) rc.getContext('2d').putImageData(processHQ(raw), 0, 0);
+    else rc.getContext('2d').drawImage(view, 0, 0);
     invalidateSave();
   }
 
@@ -947,7 +952,7 @@
   // 2.5mm inside that centre line. Finding the holes therefore places the picture exactly, edge
   // stripes and printing excluded, however dense they look.
   const MM = { pitch: 4.75, picW: 36, picH: 24, holeToPic: 2.5, rowsApart: 29 };
-  function sprocketPicture(film, m, W, filmStrip, center) {
+  function sprocketPicture(film, m, W, filmStrip, center, d) {
     const horiz = filmStrip.x1 - filmStrip.x0 >= filmStrip.y1 - filmStrip.y0;
     // The hole rows are mostly light, so the strip's outline often stops short of them: look a
     // quarter of its width further out on both sides.
@@ -1035,6 +1040,26 @@
     if (p1 > b1) { p0 -= p1 - b1; p1 = b1; }
     p0 = Math.max(b0, p0);
     box = horiz ? { x0: p0, x1: p1, y0: box.y0, y1: box.y1 } : { x0: box.x0, x1: box.x1, y0: p0, y1: p1 };
+
+    // The 2mm gap between pictures is bare film: its colour is exactly the orange mask to remove.
+    if (d) {
+      const pick = [[], [], []];
+      const aLo = (horiz ? box.y0 : box.x0) + 2 * mm, aHi = (horiz ? box.y1 : box.x1) - 2 * mm;
+      for (const [g0, g1] of [[p0 - 1.6 * mm, p0 - 0.5 * mm], [p1 + 0.5 * mm, p1 + 1.6 * mm]]) {
+        for (let t = Math.round(g0); t < g1; t++) {
+          for (let s = Math.round(aLo); s < aHi; s += 2) {
+            const x = horiz ? t : s, y = horiz ? s : t;
+            if (x < 0 || y < 0 || x >= W || y >= Hh) continue;
+            const i = y * W + x;
+            if (!film[i] || m[i]) continue;
+            pick[0].push(d[i * 4]); pick[1].push(d[i * 4 + 1]); pick[2].push(d[i * 4 + 2]);
+          }
+        }
+      }
+      if (pick[0].length > 30) {
+        box.base = pick.map(a => { a.sort((p, q) => p - q); return a[a.length >> 1]; });
+      }
+    }
     return box;
   }
 
@@ -1185,15 +1210,19 @@
       const dark = Math.max(0, base[0] - d[p]) + Math.max(0, base[1] - d[p + 1]) + Math.max(0, base[2] - d[p + 2]);
       exposed[i] = dark > baseSum * 0.12 ? 1 : 0;
     }
-    let pic = sprocketPicture(film, exposed, W, strip, center) || findPicture(exposed, W, strip, center);
+    let pic = sprocketPicture(film, exposed, W, strip, center, d) || findPicture(exposed, W, strip, center);
     if (!pic || area(pic) < area(strip) * 0.05) pic = null;
     const box = pic || splitMerged(strip, exposed, W, center);
 
     // Trim a hair inside so no border or light leaks into the picture.
     const ix = (box.x1 - box.x0) * 0.025, iy = (box.y1 - box.y0) * 0.025;
+    // Keep the sampled film colour only if it really is among the clearest film in view.
+    const gb = box.base;
+    const gbOk = gb && (gb[0] * 0.299 + gb[1] * 0.587 + gb[2] * 0.114) >= baseLum * 0.85;
     return {
       x: (box.x0 + ix) / W, y: (box.y0 + iy) / H,
       w: (box.x1 - box.x0 - 2 * ix) / W, h: (box.y1 - box.y0 - 2 * iy) / H,
+      base: gbOk ? gb : null,
     };
   }
 
@@ -1237,6 +1266,8 @@
       const lut = new Float32Array(size);
       for (let v = 0; v < size; v++) {
         let n = Math.pow(Math.pow(clamp01(base(v * 255 / (size - 1))), bal[c]), autoG);
+        // Gentle S-curve, like printing on photographic paper: richer blacks, cleaner whites.
+        n = n + 0.3 * (n * n * (3 - 2 * n) - n);
         n = n * expo * gains[c];
         n = (n - 0.5) * k + 0.5;
         n = Math.pow(clamp01(n), 1 / a.gamma);
@@ -1731,6 +1762,7 @@
     const k = (HQ - 1) / (255 * 16);
     const bw = state.type === 'bw', sat = 1 + state.adj.sat;
     const row = W * 4;
+    const Y = new Float32Array(W * H), Cr = new Float32Array(W * H), Cb = new Float32Array(W * H);
     for (let y = 0; y < H; y++) {
       const up = y > 0 ? -row : 0, dn = y < H - 1 ? row : 0;
       for (let x = 0; x < W; x++) {
@@ -1741,22 +1773,77 @@
           return 4 * s[q] + 2 * (s[q + lf] + s[q + rt] + s[q + up] + s[q + dn])
             + s[q + up + lf] + s[q + up + rt] + s[q + dn + lf] + s[q + dn + rt];   // 3x3 binomial, sum = 16 * value
         };
-        let r, g, b;
+        const i = y * W + x;
         if (bw) {
-          const l = 0.299 * sm(0) + 0.587 * sm(1) + 0.114 * sm(2);
-          r = g = b = lr[Math.round(l * k)];
+          Y[i] = lr[Math.round((0.299 * sm(0) + 0.587 * sm(1) + 0.114 * sm(2)) * k)];
+          Cr[i] = Cb[i] = 0;
         } else {
-          r = lr[Math.round(sm(0) * k)]; g = lg[Math.round(sm(1) * k)]; b = lb[Math.round(sm(2) * k)];
-          if (sat !== 1) {
-            const yv = r * 0.299 + g * 0.587 + b * 0.114;
-            r = yv + (r - yv) * sat; g = yv + (g - yv) * sat; b = yv + (b - yv) * sat;
-          }
+          const r = lr[Math.round(sm(0) * k)], g = lg[Math.round(sm(1) * k)], b = lb[Math.round(sm(2) * k)];
+          const yv = r * 0.299 + g * 0.587 + b * 0.114;
+          Y[i] = yv; Cr[i] = r - yv; Cb[i] = b - yv;
         }
-        const n = Math.random() - 0.5;   // dither: hides banding in skies and skin
-        d[p] = r + n; d[p + 1] = g + n; d[p + 2] = b + n; d[p + 3] = 255;
       }
     }
+
+    // A phone photo of a negative is noisy, and developing it amplifies that noise several times.
+    // Colour noise (blotchy speckles) is removed by smoothing colour alone, which the eye barely
+    // notices; grain in brightness by an edge-preserving filter that flattens only where there are
+    // no real edges, so detail stays sharp.
+    const N = W * H, tmp = new Float32Array(N);
+    if (!bw) {
+      const t2 = new Float32Array(N);
+      for (const C of [Cr, Cb]) { boxF(C, t2, tmp, W, H, 3); boxF(t2, C, tmp, W, H, 3); }
+    }
+    guidedSmooth(Y, tmp, W, H, 2, 30);
+
+    for (let i = 0, p = 0; i < N; i++, p += 4) {
+      const yv = Y[i], cr = Cr[i] * sat, cb = Cb[i] * sat;
+      const r = yv + cr, b = yv + cb, g = (yv - 0.299 * r - 0.114 * b) / 0.587;
+      const n = Math.random() - 0.5;   // dither: hides banding in skies and skin
+      d[p] = r + n; d[p + 1] = g + n; d[p + 2] = b + n; d[p + 3] = 255;
+    }
     return out;
+  }
+
+  // Box blur of one float channel (running sums; separable): src -> dst, `tmp` scratch.
+  function boxF(src, dst, tmp, W, H, r) {
+    const norm = 1 / (2 * r + 1);
+    for (let y = 0; y < H; y++) {
+      const o = y * W;
+      let acc = 0;
+      for (let i = -r; i <= r; i++) acc += src[o + Math.min(W - 1, Math.max(0, i))];
+      for (let x = 0; x < W; x++) {
+        tmp[o + x] = acc * norm;
+        acc += src[o + Math.min(W - 1, x + r + 1)] - src[o + Math.max(0, x - r)];
+      }
+    }
+    for (let x = 0; x < W; x++) {
+      let acc = 0;
+      for (let i = -r; i <= r; i++) acc += tmp[Math.min(H - 1, Math.max(0, i)) * W + x];
+      for (let y = 0; y < H; y++) {
+        dst[y * W + x] = acc * norm;
+        acc += tmp[Math.min(H - 1, y + r + 1) * W + x] - tmp[Math.max(0, y - r) * W + x];
+      }
+    }
+  }
+
+  // Self-guided filter (He et al.): near an edge the local variance is large and the pixel is kept;
+  // in flat areas the variance is noise-sized and the pixel moves to the local mean. In place on I.
+  function guidedSmooth(I, tmp, W, H, r, eps) {
+    const N = W * H;
+    const mI = new Float32Array(N), mII = new Float32Array(N), sq = new Float32Array(N);
+    boxF(I, mI, tmp, W, H, r);
+    for (let i = 0; i < N; i++) sq[i] = I[i] * I[i];
+    boxF(sq, mII, tmp, W, H, r);
+    for (let i = 0; i < N; i++) {
+      const v = mII[i] - mI[i] * mI[i];
+      const a = v / (v + eps);
+      mII[i] = a;                    // a
+      mI[i] = mI[i] * (1 - a);       // b
+    }
+    boxF(mII, sq, tmp, W, H, r);     // mean a
+    boxF(mI, mII, tmp, W, H, r);     // mean b
+    for (let i = 0; i < N; i++) I[i] = sq[i] * I[i] + mII[i];
   }
 
   // Running-sum box blur along one axis (stride 4 = horizontal, 4*W = vertical).
