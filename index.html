@@ -147,6 +147,8 @@
   .home-view { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 16px 24px; }
   .home-guide { width: min(72vw, 300px); aspect-ratio: 2 / 3; border: 2px dashed rgba(255,255,255,.55); border-radius: 6px; display: flex; align-items: center; justify-content: center; }
   .home-guide span { width: 70%; height: 70%; border-radius: 4px; background: linear-gradient(160deg, rgba(232,145,58,.35), rgba(224,56,62,.25)); }
+  .home-why { margin: 0; max-width: 34ch; font-size: 13px; color: rgba(255,255,255,.6); text-align: center; }
+  .home-steps b { color: #ffd27a; }
   .home-steps { margin: 0; padding-inline-start: 22px; font-size: 15px; line-height: 1.6; color: rgba(255,255,255,.85); max-width: 32ch; }
   .screen label.ghost { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid rgba(255,255,255,.25); color: #fff; }
   .shutter-label {
@@ -218,7 +220,7 @@
         <li><b>מקור אור לבן ואחיד</b> – קופסת אור, או מסך של טאבלט/מחשב נייד במצב "מסך לבן" (כפתור למטה).</li>
         <li><b>חדר חשוך</b> – כבו אורות כדי שלא יהיו השתקפויות על הפילם.</li>
         <li><b>הטלפון מקביל לפילם</b> – בדיוק מעליו, בלי זווית. בלי פלאש.</li>
-        <li><b>מלאו את המסך בתמונה אחת</b> – קרוב ככל שהפוקוס מאפשר. ככל שהתמונה גדולה יותר במסך, היא יוצאת חדה יותר.</li>
+        <li><b>מלאו את המסך בתמונה אחת – עם זום 2x</b>. מקרוב מדי הטלפון לא ממקד; עם זום 2x או 3x מצלמים ממרחק נוח, והתמונה עדיין גדולה וחדה.</li>
         <li><b>מצלמים על מסך מחשב?</b> הניחו דף נייר לבן על המסך ואת הפילם מעליו – אחרת רואים בתמונה את הפיקסלים של המסך.</li>
         <li><b>השאירו פס קטן מהשוליים הכתומים</b> של הפילם – תוכלו לדגום אותו לאיזון צבעים מדויק.</li>
       </ol>
@@ -336,9 +338,10 @@
     <div class="home-guide" aria-hidden="true"><span></span></div>
     <ol class="home-steps">
       <li>מניחים את הנגטיב על אור לבן</li>
-      <li>מקרבים את הטלפון עד שתמונה אחת ממלאת את המסך</li>
+      <li>במצלמה בוחרים <b>זום 2x</b> (או 3x), ומרחיקים את הטלפון עד שהתמונה חדה ותמונה אחת ממלאת את רוב המסך</li>
       <li>מצלמים – האפליקציה מוצאת את התמונה, סורקת ומפתחת</li>
     </ol>
+    <p class="home-why">למה זום? מקרוב מדי הטלפון לא מצליח למקד. עם זום אפשר לצלם מקצת יותר רחוק – והתמונה עדיין גדולה וחדה.</p>
   </div>
   <div class="live-bar">
     <div class="slot"><div class="counter"><b id="homeCount">0</b><span>נשמרו</span></div></div>
@@ -451,7 +454,7 @@
     const turned = state.rot % 180 !== 0;
     const w = Math.round(state.crop.w * (turned ? ih : iw)), h = Math.round(state.crop.h * (turned ? iw : ih));
     return Math.max(w, h) < 2000
-      ? `⚠️ הפריים תופס רק ${w}×${h} פיקסלים בצילום – לתמונה חדה קרבו את הטלפון כך שהפריים ימלא את כל המסך`
+      ? `⚠️ התמונה תפסה רק ${w}×${h} פיקסלים בצילום. לתוצאה חדה: זום 2x במצלמה, כך שתמונה אחת ממלאת את רוב המסך`
       : '';
   }
 
@@ -928,7 +931,42 @@
     box = horiz
       ? { x0: b0 + run[0], x1: b0 + run[1], y0: box.y0, y1: box.y1 }
       : { x0: box.x0, x1: box.x1, y0: b0 + run[0], y1: b0 + run[1] };
-    return splitMerged(box, m, W, center);
+    return trimAcross(splitMerged(box, m, W, center), m, W, horiz);
+  }
+
+  // Shave the film's edge (sprocket band, edge printing) off the picture's two long sides.
+  function trimAcross(box, m, W, horiz) {
+    const across = maskProfile(m, W, box, !horiz);
+    const n = across.length;
+    let a = 0, b = n;
+    const med = Array.from(across).sort((p, q) => p - q)[n >> 1];
+    // Lines clearly emptier than the picture belong to the border.
+    while (b - a > 2 && across[a] < med * 0.8) a++;
+    while (b - a > 2 && across[b - 1] < med * 0.8) b--;
+    // When both short ends sit on real gaps, the length is known exactly, and a 35mm picture is
+    // 3:2: anything taller than that is border, taken from whichever side looks less like picture.
+    if (box.exact) {
+      const L = horiz ? box.x1 - box.x0 : box.y1 - box.y0;
+      const want = L / 1.5;
+      while (b - a > want * 1.03) {
+        if (across[a] <= across[b - 1]) a++; else b--;
+      }
+    }
+    const out = horiz
+      ? { x0: box.x0, x1: box.x1, y0: box.y0 + a, y1: box.y0 + b }
+      : { x0: box.x0 + a, x1: box.x0 + b, y0: box.y0, y1: box.y1 };
+    if (box.exact) return out;
+    // Gaps too blurry to find: the height across the strip is reliable, so cap the length at 3:2,
+    // taking the excess from whichever end looks less like picture (the blurred gap and the next one).
+    const along = maskProfile(m, W, out, horiz);
+    const maxLen = (b - a) * 1.53;
+    let s = 0, e = along.length;
+    while (e - s > maxLen) {
+      if (along[s] <= along[e - 1]) s++; else e--;
+    }
+    return horiz
+      ? { x0: out.x0 + s, x1: out.x0 + e, y0: out.y0, y1: out.y1 }
+      : { x0: out.x0, x1: out.x1, y0: out.y0 + s, y1: out.y0 + e };
   }
 
   // A 35mm picture is 3:2 (36mm along the strip, 24mm across). Several pictures in a row are told
@@ -962,15 +1000,23 @@
 
     const c = along ? center.x - box.x0 : center.y - box.y0;
     const want = S * 1.5;
-    let seg = null, bestScore = -Infinity;
+    let seg = null, bestScore = -Infinity, exact = false;
     for (let i = 0; i < cand.length; i++) {
       for (let j = i + 1; j < cand.length; j++) {
         const a = cand[i].k, b = cand[j].k, len = b - a;
         if (len < S * 1.15 || len > S * 1.8) continue;
         const off = c >= a && c <= b ? 0 : Math.min(Math.abs(c - a), Math.abs(c - b)) / S;
         const score = cand[i].depth + cand[j].depth - Math.abs(len - want) / S - off * 2;
-        if (score > bestScore) { bestScore = score; seg = [a, b]; }
+        if (score > bestScore) {
+          bestScore = score; seg = [a, b];
+          exact = cand[i].depth >= 0.4 && cand[j].depth >= 0.4;   // real gaps on both sides
+        }
       }
+    }
+    if (seg && exact) {
+      return along
+        ? { x0: box.x0 + seg[0], x1: box.x0 + seg[1], y0: box.y0, y1: box.y1, exact }
+        : { x0: box.x0, x1: box.x1, y0: box.y0 + seg[0], y1: box.y0 + seg[1], exact };
     }
     if (!seg) {
       if (L <= S * 1.8) return box;
@@ -1037,7 +1083,7 @@
     const box = pic || splitMerged(strip, exposed, W, center);
 
     // Trim a hair inside so no border or light leaks into the picture.
-    const ix = (box.x1 - box.x0) * 0.015, iy = (box.y1 - box.y0) * 0.015;
+    const ix = (box.x1 - box.x0) * 0.025, iy = (box.y1 - box.y0) * 0.025;
     return {
       x: (box.x0 + ix) / W, y: (box.y0 + iy) / H,
       w: (box.x1 - box.x0 - 2 * ix) / W, h: (box.y1 - box.y0 - 2 * iy) / H,
@@ -1350,7 +1396,7 @@
         // A picture that fills little of the camera can't come out sharp, however it's enlarged.
         const tooFar = liveBox && liveBox.w * liveBox.h < 0.18;
         $('liveMsg').textContent = !liveBox ? 'כוונו לנגטיב מול אור לבן'
-          : tooFar ? '⚠️ קרבו את הטלפון – התמונה צריכה למלא את רוב המסך'
+          : tooFar ? '⚠️ התמונה קטנה מדי – קרבו את הטלפון או צלמו ב-HD עם זום 2x'
           : 'החזיקו את כפתור הצילום 3 שניות';
         $('liveMsg').style.color = tooFar ? 'var(--accent)' : '';
       }
