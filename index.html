@@ -364,7 +364,7 @@
   </div>
   <div class="res-hint" id="resHint"></div>
   <div class="res-tools">
-    <button id="resAI" class="ai" hidden>🪄<span>שיפור AI</span></button>
+    <button id="resAI" class="ai">🪄<span>שיפור AI</span></button>
     <button id="resRotate">⟳<span>סובב</span></button>
     <button id="resFlip">⇋<span>מראה</span></button>
     <button id="resCrop">✂️<span>חיתוך</span></button>
@@ -714,10 +714,15 @@
       const sctx = src.getContext('2d');
       sctx.putImageData(processHQ(sctx.getImageData(0, 0, src.width, src.height)), 0, 0);
       dev.textContent = 'משפר עם AI… 0%';
-      const out = await upscaler.upscale(src, {
-        patchSize: 64, padding: 4, awaitNextFrame: true, output: 'base64',
+      // 128px tiles keep the graphics chip busy with few hand-offs (an HD picture takes ~20s);
+      // a phone whose chip can't build shaders that big falls back to small tiles.
+      const opts = tile => ({
+        patchSize: tile, padding: tile / 16, awaitNextFrame: true, output: 'base64',
         progress: p => { dev.textContent = `משפר עם AI… ${Math.round(p * 100)}%`; },
       });
+      let out;
+      try { out = await upscaler.upscale(src, opts(128)); }
+      catch (_) { out = await upscaler.upscale(src, opts(64)); }
       const img = new Image();
       img.src = out;
       await img.decode();
