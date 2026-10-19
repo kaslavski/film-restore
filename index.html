@@ -222,7 +222,7 @@
       </div>
       <div class="hint" id="startMsg"></div>
       <small>או גררו קובץ תמונה לכאן · הכל מעובד במכשיר שלכם, שום דבר לא נשלח לשרת</small>
-      <small class="ver">גרסה 13</small>
+      <small class="ver">גרסה 14</small>
     </div>
 
     <div class="tips">
@@ -354,7 +354,7 @@
       <li>מצלמים – האפליקציה מוצאת את התמונה, סורקת ומפתחת</li>
     </ol>
     <p class="home-why">למה זום? מקרוב מדי הטלפון לא מצליח למקד. עם זום אפשר לצלם מקצת יותר רחוק – והתמונה עדיין גדולה וחדה.</p>
-    <p class="home-why">גרסה 13</p>
+    <p class="home-why">גרסה 14</p>
   </div>
   <div class="live-bar">
     <div class="slot"><div class="counter"><b id="homeCount">0</b><span>נשמרו</span></div></div>
@@ -548,8 +548,9 @@
     drawResult();
   }
   function drawResult() {
-    // Any change to the picture makes an earlier AI pass stale.
+    // Any change to the picture makes an earlier AI pass stale; redo it if AI is on.
     if (aiCanvas) { aiCanvas = null; $('resAI').classList.remove('active'); }
+    if (aiWanted && !$('result').hidden) scheduleAI();
     const rc = $('resCanvas');
     rc.width = view.width; rc.height = view.height;
     // The result screen shows the full-quality development (noise reduction included), not the
@@ -605,8 +606,10 @@
     if (fresh) {
       state.look = 'original'; state.enhance = false;
       $('resEnhance').classList.remove('active');
+      aiWanted = !!navigator.gpu;            // fast graphics chip: every picture gets the AI pass
       applyLook();
       buildFilterThumbs();
+      if (aiWanted) scheduleAI(900);         // after the "developing" beat
       // Short "developing" beat, then the picture fades in.
       rc.classList.remove('shown');
       $('developing').hidden = false;
@@ -636,6 +639,7 @@
   let captureMode = 'hd';
   function backToCapture() {
     $('result').hidden = true;
+    clearTimeout(aiTimer);
     if (captureMode === 'live' && cameraAllowed) openLive();
     else showHome();
   }
@@ -767,13 +771,29 @@
     return out;
   }
 
-  async function runAI() {
-    if (aiBusy || !raw) return;
-    if (aiCanvas) {                         // second tap: back to the picture without AI
-      drawResult();
-      $('resHint').textContent = frameWarning();
-      return;
+  // With a fast graphics chip the AI runs on every picture by itself (and again after a look or
+  // rotation change); tapping the button turns it off or on.
+  let aiWanted = false, aiTimer = 0, aiRerun = false;
+  function scheduleAI(delay = 600) {
+    clearTimeout(aiTimer);
+    aiTimer = setTimeout(() => runAI(true), delay);
+  }
+
+  async function runAI(auto) {
+    if (!raw) return;
+    if (aiBusy) { aiRerun = true; return; }
+    if (auto !== true) {
+      if (aiCanvas || aiWanted) {           // tap while on: back to the picture without AI
+        aiWanted = false;
+        clearTimeout(aiTimer);
+        drawResult();
+        $('resHint').textContent = frameWarning();
+        return;
+      }
+      aiWanted = true;
     }
+    if (!aiWanted) return;
+    const startVersion = saveVersion;       // any change meanwhile makes this run stale
     aiBusy = true;
     const dev = $('developing'), result = $('result');
     dev.textContent = 'טוען מודל AI… (פעם ראשונה בלבד)';
@@ -791,6 +811,7 @@
       dev.textContent = 'משפר עם AI… 0%' + slow;
       const t0 = performance.now();
       const out = await upscale4(src, p => { dev.textContent = `משפר עם AI… ${Math.round(p * 100)}%${slow}`; });
+      if (saveVersion !== startVersion || !aiWanted) { aiRerun = aiWanted; return; }
       const c = document.createElement('canvas');
       c.width = out.width; c.height = out.height;
       c.getContext('2d').putImageData(out, 0, 0);
@@ -810,9 +831,10 @@
       dev.textContent = 'מפתח את התמונה…';
       result.classList.remove('busy');
       aiBusy = false;
+      if (aiRerun) { aiRerun = false; if (aiWanted) scheduleAI(); }
     }
   }
-  $('resAI').addEventListener('click', runAI);
+  $('resAI').addEventListener('click', () => runAI(false));
 
   $('resSave').addEventListener('click', saveFromResult);
   $('resClose').addEventListener('click', backToCapture);
@@ -1972,6 +1994,22 @@
       for (const C of [Cr, Cb]) { boxF(C, t2, tmp, W, H, 3); boxF(t2, C, tmp, W, H, 3); }
     }
     if (opts.grain !== false) guidedSmooth(Y, tmp, W, H, 2, 30);
+
+    // Clarity (local contrast): a negative photographed through a phone comes out hazy. Lifting
+    // each area against its wide surroundings brings shapes and texture back without touching
+    // fine grain (the radius is a few percent of the picture, far wider than any noise).
+    {
+      const r = Math.max(4, Math.round(Math.min(W, H) / 40));
+      const wide = new Float32Array(N), t2 = new Float32Array(N);
+      boxF(Y, t2, tmp, W, H, r);
+      boxF(t2, wide, tmp, W, H, r);
+      for (let i = 0; i < N; i++) {
+        const detail = Y[i] - wide[i];
+        // ease off near black and white so shadows and highlights don't clip
+        const room = Math.min(Y[i], 255 - Y[i]) / 128;
+        Y[i] += 0.45 * detail * Math.min(1, room + 0.25);
+      }
+    }
 
     for (let i = 0, p = 0; i < N; i++, p += 4) {
       const yv = Y[i], cr = Cr[i] * sat, cb = Cb[i] * sat;
